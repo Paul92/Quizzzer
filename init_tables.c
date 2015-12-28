@@ -30,9 +30,9 @@ int main(int argc, char* argv[]) {
                              "wrong_answer3 CHAR(300) );";
 
     char *create_users = "CREATE TABLE Users("                 \
-                         "user CHAR(20) PRIMARY KEY NOT NULL," \
-                         "password CHAR(20),"                  \
-                         "nr_of_games_played INT);";
+                         "user CHAR(30) PRIMARY KEY NOT NULL," \
+                         "password CHAR(30) NOT NULL,"         \
+                         "nr_of_games_played INT DEFAULT 0 NOT NULL);";
 
     char *zErrMsg = NULL;
 
