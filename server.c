@@ -21,10 +21,10 @@ char * conv_addr (struct sockaddr_in address) {
 
     // adresa IP a clientului 
     strcpy (str, inet_ntoa (address.sin_addr));
-	
+    
     // portul utilizat de client
     bzero (port, 7);
-    sprintf (port, ":%d", ntohs (address.sin_port));	
+    sprintf (port, ":%d", ntohs (address.sin_port));    
     strcat (str, port);
     return (str);
 }
@@ -111,30 +111,30 @@ int main () {
 
         // apelul select()
         if (select (nfds+1, &readfds, NULL, NULL, &tv) < 0) {
-	    perror ("[server] Eroare la select().\n");
-	    return errno;
+            perror ("[server] Eroare la select().\n");
+            return errno;
         }
         // vedem daca e pregatit socketul pentru a-i accepta pe clienti
         if (FD_ISSET (sd, &readfds)) {
-	    // pregatirea structurii client
-	    len = sizeof (from);
-	    bzero (&from, sizeof (from));
+            // pregatirea structurii client
+            len = sizeof (from);
+            bzero (&from, sizeof (from));
 
-	    // a venit un client, acceptam conexiunea
-	    client = accept (sd, (struct sockaddr *) &from, &len);
+            // a venit un client, acceptam conexiunea
+            client = accept (sd, (struct sockaddr *) &from, &len);
 
-	    // eroare la acceptarea conexiunii de la un client
-	    if (client < 0) {
-	        perror ("[server] Eroare la accept().\n");
-	        continue;
-	    }
+            // eroare la acceptarea conexiunii de la un client
+            if (client < 0) {
+                perror ("[server] Eroare la accept().\n");
+                continue;
+            }
 
             if (nfds < client) // ajusteaza valoarea maximului
               nfds = client;
-            
-	    // includem in lista de descriptori activi si acest socket
-	    FD_SET (client, &actfds);
-	  
+                
+            // includem in lista de descriptori activi si acest socket
+            FD_SET (client, &actfds);
+
             if (command == 1) {// New account
                 if (rc  == 0) {
                     sql=(char*)realloc(sql,sizeof("INSERT into USERS(user,
