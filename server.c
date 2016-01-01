@@ -12,6 +12,16 @@
 
 #define PORT 9856
 
+#define READ_BUF_SIZE 1024
+
+#define PASSWORD_SIZE 128
+#define USER_SIZE     128
+#define COMMAND_SIZE  128
+
+#define LOGIN_COMMAND "login"
+#define NEWUSER_COMMAND "newuser"
+#define LOGOUT_COMMAND "logout"
+
 extern int errno;        // eroarea returnata de unele apeluri
 
 // functie de convertire a adresei IP a clientului in sir de caractere 
@@ -166,13 +176,24 @@ int main () {
         for (fd = 0; fd <= nfds; fd++) { // parcurgem multimea de descriptori
             // este un socket de citire pregatit?
             if (fd != sd && FD_ISSET (fd, &readfds)) {
-                if () {
+                char buffer[READ_BUF_SIZE];
+                read(fd, buffer, READ_BUF_SIZE);
+                char command[COMMAND_SIZE];
+                char username[USER_SIZE];
+                char password[PASSWORD_SIZE];
+                sscanf(buffer, "%s %s %s", command, username, password);
+                if (strcmp(command, LOGIN_COMMAND)) {
+
+                } else if (strcmp(command, NEWUSER_COMMAND)) {
+
+                } else if (strcmp(command, LOGOUT_COMMAND)) {
                     printf ("[server] S-a deconectat clientul cu 
                             descriptorul %d.\n",fd);
                     fflush (stdout);
                     close (fd);           // inchidem conexiunea cu clientul
                     FD_CLR (fd, &actfds); // scoatem si din multime
                 }
+
             }
         }
     }
