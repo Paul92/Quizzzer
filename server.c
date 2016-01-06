@@ -22,6 +22,17 @@
 #define NEWUSER_COMMAND "newuser"
 #define LOGOUT_COMMAND "logout"
 
+static int select_query(void *data,int argc, char **argv, char **azColName){
+	if (argv==NULL)
+		{return 0;}
+	else
+		{return 4;}
+}
+
+static int nothing_to_do_query(void *NotUsed, int argc, char **argv, char **azColName){
+   return 0;
+}
+
 extern int errno;        // eroarea returnata de unele apeluri
 
 // functie de convertire a adresei IP a clientului in sir de caractere 
@@ -51,11 +62,11 @@ int main () {
         fprintf(stdout, "Database opened succesfully\n");
     }
 
-    struct player {
+    /*struct player {
         int filedescriptor;
         char* username;
     };
-    player v[100];
+    player v[100];*/
 
 
     struct sockaddr_in server;  // structurile pentru server si clienti
@@ -145,31 +156,8 @@ int main () {
             // includem in lista de descriptori activi si acest socket
             FD_SET (client, &actfds);
 
-            if (command == 1) {// New account
-                if (rc  == 0) {
-                    sql=(char*)realloc(sql,sizeof("INSERT into USERS(user,
-                        password, nr_of_games_played) values('")+30
-                        +sizeof("','")+30+sizeof("', 0"));
-                    strcpy(sql,"INSERT into USERS(user, password, 
-                        nr_of_games_played) values('");
-                    strcat(sql,login);
-                    strcat(sql,"','");
-                    strcat(sql,parola);
-                    strcat(sql,"',");
-                    strcat(sql,"0)");
-                    rc = sqlite3_exec(db, sql, nothing_to_do_query, 
-                                      0, &zErrMsg);
-                    if( rc != SQLITE_OK ) {
-                        fprintf(stderr, "SQL error: %s\n",zErrMsg);
-                        sqlite3_free(zErrMsg);
-                    } else {
-                        fprintf(stdout, "You are now registered!\n");
-                    }
-                }
-            }
-
-            printf("[server] S-a conectat clientul cu descriptorul %d, 
-                    de la adresa %s.\n",client, conv_addr (from));
+            printf("[server] S-a conectat clientul cu descriptorul %d,"
+                    "de la adresa %s.\n",client, conv_addr (from));
             fflush (stdout);
         }
         // vedem daca e pregatit vreun socket client pentru a trimite raspunsul
@@ -181,14 +169,29 @@ int main () {
                 char command[COMMAND_SIZE];
                 char username[USER_SIZE];
                 char password[PASSWORD_SIZE];
+                char * sql;
+                char *zErrMsg;
                 sscanf(buffer, "%s %s %s", command, username, password);
                 if (strcmp(command, LOGIN_COMMAND)) {
-
+                    sql = sprintf(db, "SELECT * FROM Users WHERE username = %s"
+                                  "AND password = %S;", username, password);
+                    if (sqlite3_exec(db, sql, select_query, NULL, &zErrMsg) != SQLITE_OK ) {
+                        fprintf(stderr, "SQL error: %s\n",zErrMsg);
+                        sqlite3_free(zErrMsg);
+                    }
                 } else if (strcmp(command, NEWUSER_COMMAND)) {
-
+                    sql = sprintf(db, "INSERT INTO Users(user, password,"
+                                  "nr_of_games_played) VALUES (%s, %s);",
+                                  username, password);
+                    if (sqlite3_exec(db, sql, nothing_to_do_query, 0, &zErrMsg) != SQLITE_OK ) {
+                        fprintf(stderr, "SQL error: %s\n",zErrMsg);
+                        sqlite3_free(zErrMsg);
+                    } else {
+                        fprintf(stdout, "You are now registered!\n");
+                    }
                 } else if (strcmp(command, LOGOUT_COMMAND)) {
-                    printf ("[server] S-a deconectat clientul cu 
-                            descriptorul %d.\n",fd);
+                    printf ("[server] S-a deconectat clientul cu "
+                            "descriptorul %d.\n",fd);
                     fflush (stdout);
                     close (fd);           // inchidem conexiunea cu clientul
                     FD_CLR (fd, &actfds); // scoatem si din multime
@@ -198,5 +201,3 @@ int main () {
         }
     }
 }
-
-
