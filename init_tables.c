@@ -140,15 +140,15 @@ int main(int argc, char* argv[]) {
     //Insert rows in Users table
     char* insert_users = "INSERT INTO Users (user, password, " \
                          "nr_of_games_played) " \
-                         "VALUES (silvia95, anamaria96, 2);" \
+                         "VALUES (\"silvia95\", \"anamaria96\", 2);" \
 
                          "INSERT INTO Users (user, password, " \
                          "nr_of_games_played) " \
-                         "VALUES (gadyPhol, apollo18, 1);" \
+                         "VALUES (\"gadyPhol\", \"apollo18\", 1);" \
 
                          "INSERT INTO Users (user, password, " \
                          "nr_of_games_played) " \
-                         "VALUES (silvia, 123456, 2);" ;
+                         "VALUES (\"silvia\", \"123456\", 2);" ;
 
     // Execute last statement
     if (sqlite3_exec(db, insert_users, callback, 0, &zErrMsg) != SQLITE_OK) {
