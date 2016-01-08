@@ -14,26 +14,31 @@
 
 #define READ_BUF_SIZE 1024
 
-#define PASSWORD_SIZE 128
-#define USER_SIZE     128
-#define COMMAND_SIZE  128
+#define PASSWORD_SIZE        128
+#define USER_SIZE            128
+#define COMMAND_SIZE         128
 #define SQL_COMMAND_MAX_SIZE 512
+#define MAX_LOGGED_PLAYERS   20
 
 #define LOGIN_COMMAND   "login"
 #define NEWUSER_COMMAND "newuser"
 #define LOGOUT_COMMAND  "logout"
 #define QUIT_COMMAND    "quit"
 
-struct Thread_data{
-    int thread_id; //id-ul thread-ului tinut in evidenta de acest program
+struct Thread_data {
     int client_fd; //descriptorul intors de accept
 };
 
-/*struct player {
-    int filedescriptor;
-    char* username;
+struct Player {
+    int fd;
+    char *username;
+    int loggedIn;
 };
-player v[100];*/
+
+// NULL init by default
+struct Player *players[MAX_LOGGED_PLAYERS];
+
+pthread_mutex_t mutex;
 
 //int select_query(void *data, int argc, char **argv, char **azColName){
 //#ifdef DEBUG
@@ -79,9 +84,26 @@ char * conv_addr (struct sockaddr_in address) {
     return (str);
 }
 
-void *treat(void *arg)
-{
+void *treat(void *arg) {
+
     struct Thread_data *data = arg;
+
+    struct Player *currentPlayer = malloc(sizeof(currentPlayer));
+
+    currentPlayer->fd       = data->client_fd;
+    currentPlayer->username = NULL;
+    currentPlayer->loggedIn = 0;
+
+    pthread_mutex_lock(&mutex);
+
+    int playerId = 0;
+    for ( ; playerId < MAX_LOGGED_PLAYERS; playerId++)
+        if (players[playerId] == NULL)
+            break;
+
+    players[playerId] = currentPlayer;
+
+    pthread_mutex_unlock(&mutex);
 
     sqlite3 *db;
 
@@ -124,6 +146,10 @@ void *treat(void *arg)
             } else {
                 printf("Login successful.\n");
                 write(data->client_fd, "OK\n", 4);
+
+                pthread_mutex_lock(&mutex);
+                players[playerId]->loggedIn = 1;
+                pthread_mutex_unlock(&mutex);
             }
         } else if (strcmp(command, NEWUSER_COMMAND) == 0) {
             sprintf(sql_command, "INSERT INTO Users(user, password) "
@@ -140,9 +166,13 @@ void *treat(void *arg)
                 write(data->client_fd, "OK\n", 4);
             }
         } else if (strcmp(command, LOGOUT_COMMAND) == 0) {
-            printf("[server] S-a deconectat clientul cu "
-                           "descriptorul %d.\n", data->client_fd);
-            close(data->client_fd);           // inchidem conexiunea cu clientul
+            if (players[playerId]->loggedIn) {
+                printf("[server] S-a deconectat clientul cu "
+                               "descriptorul %d.\n", data->client_fd);
+                close(data->client_fd);           // inchidem conexiunea cu clientul
+            } else {
+                printf("[server] clientul cu descriptorul %d nu e logat.\n", data->client_fd);
+            }
             break;
         }
     }
@@ -153,6 +183,10 @@ void *treat(void *arg)
 
 int main () {
 
+    if (pthread_mutex_init(&mutex, NULL) != 0) {
+        fprintf(stderr, "Mutex init failed");
+        exit(0);
+    }
 
     // creare socket
     int socket_fd;
@@ -208,10 +242,9 @@ int main () {
         }
 
         struct Thread_data *thread_data = malloc(sizeof(struct Thread_data));
-        thread_data->thread_id = clientId++;
         thread_data->client_fd = client;
 
-        pthread_create(&thread_id[clientId], NULL, &treat, thread_data);
+        pthread_create(&thread_id[clientId++], NULL, &treat, thread_data);
 
         if (clientId == 99)
             exit(0);
