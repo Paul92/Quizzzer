@@ -8,8 +8,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sqlite3.h>
+#include <pthread.h>
 
-#define PORT 9856
+#define PORT 9898
 
 #define READ_BUF_SIZE 1024
 
@@ -21,6 +22,18 @@
 #define LOGIN_COMMAND   "login"
 #define NEWUSER_COMMAND "newuser"
 #define LOGOUT_COMMAND  "logout"
+#define QUIT_COMMAND    "quit"
+
+struct Thread_data{
+    int thread_id; //id-ul thread-ului tinut in evidenta de acest program
+    int client_fd; //descriptorul intors de accept
+};
+
+/*struct player {
+    int filedescriptor;
+    char* username;
+};
+player v[100];*/
 
 //int select_query(void *data, int argc, char **argv, char **azColName){
 //#ifdef DEBUG
@@ -47,6 +60,7 @@ int login_query(void *ret, int argc, char **argv, char **azColName) {
 }
 
 int register_query(void *NotUsed, int argc, char **argv, char **azColName) {
+    printf("Received a register query with %d params\n", argc);
     return 0;
 }
 
@@ -65,8 +79,10 @@ char * conv_addr (struct sockaddr_in address) {
     return (str);
 }
 
-int main () {
-    
+void *treat(void *arg)
+{
+    struct Thread_data *data = arg;
+
     sqlite3 *db;
 
     // Open database
@@ -77,38 +93,81 @@ int main () {
         fprintf(stdout, "Database opened succesfully\n");
     }
 
-    /*struct player {
-        int filedescriptor;
-        char* username;
-    };
-    player v[100];*/
+    char buffer[READ_BUF_SIZE];
+    buffer[read(data->client_fd, buffer, READ_BUF_SIZE)] = '\0';
+
+    char command[COMMAND_SIZE];
+    char username[USER_SIZE];
+    char password[PASSWORD_SIZE];
+    sscanf(buffer, "%s %s %s", command, username, password);
+
+    char *zErrMsg = NULL;
+    char sql_command[SQL_COMMAND_MAX_SIZE];
+
+    while (1) {
+        if (strcmp(command, LOGIN_COMMAND) == 0) {
+            sprintf(sql_command, "SELECT * FROM Users WHERE "
+                            "user = \"%s\" AND password = \"%s\";",
+                    username, password);
+            strcpy(sql_command, "SELECT * FROM users;");
+            printf("Doing login\n");
+            int login_query_return = 0;
+            if (sqlite3_exec(db, sql_command, login_query,
+                             &login_query_return, &zErrMsg) != SQLITE_OK) {
+                fprintf(stderr, "SQL error: %s\n", zErrMsg);
+                sqlite3_free(zErrMsg);
+                exit(0);
+            }
+            if (login_query_return == 0) {
+                printf("Login failed.\n");
+                write(data->client_fd, "FAILED\n", 8);
+            } else {
+                printf("Login successful.\n");
+                write(data->client_fd, "OK\n", 4);
+            }
+        } else if (strcmp(command, NEWUSER_COMMAND) == 0) {
+            sprintf(sql_command, "INSERT INTO Users(user, password) "
+                            "VALUES (\"%s\", \"%s\");",
+                    username, password);
+
+            if (sqlite3_exec(db, sql_command, register_query, NULL,
+                             &zErrMsg) != SQLITE_OK) {
+                fprintf(stderr, "SQL error: %s\n", zErrMsg);
+                sqlite3_free(zErrMsg);
+                exit(0);
+            } else {
+                fprintf(stdout, "You are now registered!\n");
+                write(data->client_fd, "OK\n", 4);
+            }
+        } else if (strcmp(command, LOGOUT_COMMAND) == 0) {
+            printf("[server] S-a deconectat clientul cu "
+                           "descriptorul %d.\n", data->client_fd);
+            close(data->client_fd);           // inchidem conexiunea cu clientul
+            break;
+        }
+    }
+
+    pthread_detach(pthread_self());
+    return NULL;
+}
+
+int main () {
 
 
-    struct sockaddr_in server;  // structurile pentru server si clienti
-    struct sockaddr_in from;
-
-    fd_set readfds;             // multimea descriptorilor de citire
-    fd_set actfds;              // multimea descriptorilor activi
-    struct timeval tv;          // structura de timp pentru select()
-    int sd, client;             // descriptori de socket
-    int optval=1;               // optiune folosita pentru setsockopt() 
-    int fd;                     // descriptor folosit pentru 
-                                // parcurgerea listelor de descriptori
-    
-    int nfds;                   // numarul maxim de descriptori
-    int len;                    // lungimea structurii sockaddr_in
-
-    // creare socket 
-    if ((sd = socket (AF_INET, SOCK_STREAM, 0)) == -1) {
+    // creare socket
+    int socket_fd;
+    if ((socket_fd = socket (AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("[server] Eroare la socket().\n");
         return errno;
     }
 
     // setam pentru socket optiunea SO_REUSEADDR
-    setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+    int optval=1;               // optiune folosita pentru setsockopt()
+    setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 
     // pregatim structurile de date
-    bzero(&server, sizeof (server));
+    struct sockaddr_in server;  // structurile pentru server si clienti
+    bzero(&server, sizeof(server));
 
     // umplem structura folosita de server
     server.sin_family = AF_INET;
@@ -116,120 +175,48 @@ int main () {
     server.sin_port = htons(PORT);
 
     // atasam socketul
-    if (bind(sd, (struct sockaddr *) &server, sizeof (struct sockaddr)) == -1) {
+    if (bind(socket_fd, (struct sockaddr *)&server, sizeof(struct sockaddr)) == -1) {
         perror("[server] Eroare la bind().\n");
         return errno;
     }
 
     // punem serverul sa asculte daca vin clienti sa se conecteze
-    if (listen(sd, 5) == -1) {
+    if (listen(socket_fd, 5) == -1) {
         perror("[server] Eroare la listen().\n");
         return errno;
     }
-  
-    // completam multimea de descriptori de citire
-    FD_ZERO(&actfds);          // initial, multimea este vida
-    FD_SET(sd, &actfds);       // includem in multime socketul creat
-
-    tv.tv_sec = 1;              // se va astepta un timp de 1 sec.
-    tv.tv_usec = 0;
-  
-    // valoarea maxima a descriptorilor folositi
-    nfds = sd;
 
     printf("[server] Asteptam la portul %d...\n", PORT);
-    fflush(stdout);
-        
+
+    int clientId = 0;
+    pthread_t thread_id[100];    //Identificatorii thread-urilor care se vor crea
+
     // servim in mod concurent clientii...
     while (1) {
-        // ajustam multimea descriptorilor activi (efectiv utilizati)
-        bcopy((char *) &actfds, (char *) &readfds, sizeof (readfds));
+        // pregatirea structurii client
+        struct sockaddr_in from;
+        int len = sizeof(from);
+        bzero(&from, sizeof(from));
 
-        // apelul select()
-        if (select(nfds+1, &readfds, NULL, NULL, &tv) < 0) {
-            perror("[server] Eroare la select().\n");
-            return errno;
+        // a venit un client, acceptam conexiunea
+        int client = accept(socket_fd, (struct sockaddr *)&from, (socklen_t *)&len);
+
+        // eroare la acceptarea conexiunii de la un client
+        if (client < 0) {
+            perror("[server] Eroare la accept().\n");
+            continue;
         }
-        // vedem daca e pregatit socketul pentru a-i accepta pe clienti
-        if (FD_ISSET(sd, &readfds)) {
-            // pregatirea structurii client
-            len = sizeof(from);
-            bzero(&from, sizeof(from));
 
-            // a venit un client, acceptam conexiunea
-            client = accept(sd, (struct sockaddr *)&from, (socklen_t *)&len);
+        struct Thread_data *thread_data = malloc(sizeof(struct Thread_data));
+        thread_data->thread_id = clientId++;
+        thread_data->client_fd = client;
 
-            // eroare la acceptarea conexiunii de la un client
-            if (client < 0) {
-                perror("[server] Eroare la accept().\n");
-                continue;
-            }
+        pthread_create(&thread_id[clientId], NULL, &treat, thread_data);
 
-            if (nfds < client) // ajusteaza valoarea maximului
-                nfds = client;
-
-            // includem in lista de descriptori activi si acest socket
-            FD_SET(client, &actfds);
-
-            printf("[server] S-a conectat clientul cu descriptorul %d,"
-                    "de la adresa %s.\n",client, conv_addr(from));
-            fflush(stdout);
-        }
-        // vedem daca e pregatit vreun socket client pentru a trimite raspunsul
-        for (fd = 0; fd <= nfds; fd++) { // parcurgem multimea de descriptori
-            // este un socket de citire pregatit?
-            if (fd != sd && FD_ISSET (fd, &readfds)) {
-                char buffer[READ_BUF_SIZE];
-                buffer[read(fd, buffer, READ_BUF_SIZE)] = '\0';
-
-                char command[COMMAND_SIZE];
-                char username[USER_SIZE];
-                char password[PASSWORD_SIZE];
-                sscanf(buffer, "%s %s %s", command, username, password);
-
-                char *zErrMsg = NULL;
-                char sql_command[SQL_COMMAND_MAX_SIZE];
-
-                if (strcmp(command, LOGIN_COMMAND) == 0) {
-                    sprintf(sql_command, "SELECT * FROM Users WHERE "
-                                         "user = \"%s\" AND password = \"%s\";\0",
-                                          username, password);
-                    int login_query_return = 0;
-                    if (sqlite3_exec(db, sql_command, login_query,
-                                     &login_query_return, &zErrMsg) != SQLITE_OK) {
-                        fprintf(stderr, "SQL error: %s\n", zErrMsg);
-                        exit(0);
-                    }
-                    if (login_query_return == 0) {
-                        printf("Login failed.\n");
-                        write(fd, "FAILED\n", 8);
-                    } else {
-                        printf("Login successful.\n");
-                        write(fd, "OK\n", 4);
-                    }
-                } else if (strcmp(command, NEWUSER_COMMAND) == 0) {
-                    sprintf(sql_command, "INSERT INTO Users(user, password) "
-                                         "VALUES (\"%s\", \"%s\");\0",
-                                         username, password);
-
-                    if (sqlite3_exec(db, sql_command, register_query, NULL,
-                                     &zErrMsg) != SQLITE_OK) {
-                        fprintf(stderr, "SQL error: %s\n", zErrMsg);
-                        exit(0);
-                    } else {
-                        fprintf(stdout, "You are now registered!\n");
-                        write(fd, "OK\n", 4);
-                    }
-                } else if (strcmp(command, LOGOUT_COMMAND) == 0) {
-                    printf("[server] S-a deconectat clientul cu "
-                            "descriptorul %d.\n", fd);
-                    fflush(stdout);
-                    close(fd);           // inchidem conexiunea cu clientul
-                    FD_CLR(fd, &actfds); // scoatem si din multime
-                }
-                if (zErrMsg != NULL)
-                    sqlite3_free(zErrMsg);
-            }
-        }
+        if (clientId == 99)
+            exit(0);
+        printf("[server] S-a conectat clientul cu descriptorul %d,"
+                "de la adresa %s.\n",client, conv_addr(from));
+        fflush(stdout);
     }
 }
