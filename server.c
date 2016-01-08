@@ -1,6 +1,5 @@
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/time.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <errno.h>
@@ -23,26 +22,25 @@
 #define NEWUSER_COMMAND "newuser"
 #define LOGOUT_COMMAND  "logout"
 
-int select_query(void *data, int argc, char **argv, char **azColName){
-#ifdef DEBUG
-    printf("Select query\n");
-    pritnf("First arg: |%s|\n", data);
-    printf("Received and argc of %d\n", argc);
-
-    for (int i = 0; i < argc; i++)
-        printf("Arguemnt %d : |%s| |%s|\n", i, argv[i], azColName[i]);
-#endif
-// Potentially useless shit!
-//    if (argv == NULL)
-//        return 0;
-//    else
-//        return 4;
+//int select_query(void *data, int argc, char **argv, char **azColName){
+//#ifdef DEBUG
+//    printf("Select query\n");
+//    pritnf("First arg: |%s|\n", data);
+//    printf("Received and argc of %d\n", argc);
 //
-    return 0;
-}
+//    for (int i = 0; i < argc; i++)
+//        printf("Arguemnt %d : |%s| |%s|\n", i, argv[i], azColName[i]);
+//#endif
+//// Potentially useless shit!
+////    if (argv == NULL)
+////        return 0;
+////    else
+////        return 4;
+////
+//    return 0;
+//}
 
 int login_query(void *ret, int argc, char **argv, char **azColName) {
-    printf("Received a login query with %d args\n", argc);
     int *retP = ret;
     *retP = argc != 0;
     return 0;
@@ -159,7 +157,7 @@ int main () {
             bzero(&from, sizeof(from));
 
             // a venit un client, acceptam conexiunea
-            client = accept(sd, (struct sockaddr *)&from, &len);
+            client = accept(sd, (struct sockaddr *)&from, (socklen_t *)&len);
 
             // eroare la acceptarea conexiunii de la un client
             if (client < 0) {
@@ -199,8 +197,9 @@ int main () {
                     int login_query_return = 0;
                     if (sqlite3_exec(db, sql_command, login_query,
                                      &login_query_return, &zErrMsg) != SQLITE_OK) {
-                        fprintf(stderr, "SQL error: %s\n",zErrMsg);
+                        fprintf(stderr, "SQL error: %s\n", zErrMsg);
                         exit(0);
+                    }
                     if (login_query_return == 0) {
                         printf("Login failed.\n");
                         write(fd, "FAILED\n", 8);
