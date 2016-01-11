@@ -38,6 +38,7 @@ struct Player {
     int loggedIn;
 };
 
+// Defining a structure which retains details about game
 struct Game {
     int playerIds[NO_GAME_PLAYERS];
     int answers[NO_GAME_PLAYERS];
@@ -153,10 +154,11 @@ void *treat(void *arg) {
                 pthread_mutex_unlock(&mutex);
             }
         } else if (strcmp(command, NEWUSER_COMMAND) == 0) {
+            // Inserting new user in database
             sprintf(sql_command, "INSERT INTO Users(user, password) "
                             "VALUES (\"%s\", \"%s\");",
                     username, password);
-
+            // If insertion has failed, then an error message will be printed
             if (sqlite3_exec(db, sql_command, register_query, NULL,
                              &zErrMsg) != SQLITE_OK) {
                 fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -168,11 +170,12 @@ void *treat(void *arg) {
             }
         } else if (strcmp(command, LOGOUT_COMMAND) == 0) {
             if (players[playerId]->loggedIn) {
-                printf("[server] S-a deconectat clientul cu "
-                               "descriptorul %d.\n", data->client_fd);
+                printf("[server] The client with"
+                               "%d descriptor has been disconected.\n", data->client_fd);
                 close(data->client_fd); // Closing the connection
             } else {
-                printf("[server] clientul cu descriptorul %d nu e logat.\n", data->client_fd);
+                printf("[server] The client with %d descriptor"
+                        "is not logged in\n", data->client_fd);
             }
             break;
         }
@@ -191,7 +194,7 @@ int main () {
 
     int socket_fd;
     if ((socket_fd = socket (AF_INET, SOCK_STREAM, 0)) == -1) {
-        perror("[server] Eroare la socket().\n");
+        perror("[server] Socket() error.\n");
         return errno;
     }
 
@@ -210,20 +213,20 @@ int main () {
 
     // Ataching socket
     if (bind(socket_fd, (struct sockaddr *)&server, sizeof(struct sockaddr)) == -1) {
-        perror("[server] Eroare la bind().\n");
+        perror("[server] bind() error.\n");
         return errno;
     }
 
     // The server is waiting for clients
     if (listen(socket_fd, 5) == -1) {
-        perror("[server] Eroare la listen().\n");
+        perror("[server] listen() error.\n");
         return errno;
     }
 
-    printf("[server] Asteptam la portul %d...\n", PORT);
+    printf("[server] We are waiting to the port %d...\n", PORT);
 
     int clientId = 0;
-    pthread_t thread_id[100];    //Identificatorii thread-urilor care se vor crea
+    pthread_t thread_id[100];    //Id for thread that will be created
 
     // Concurrent server
     while (1) {
@@ -235,7 +238,7 @@ int main () {
         // If a client is coming, the connection is accepted
         int client = accept(socket_fd, (struct sockaddr *)&from, (socklen_t *)&len);
         if (client < 0) {
-            perror("[server] Eroare la accept().\n");
+            perror("[server] accept() error.\n");
             continue;
         }
 
@@ -246,8 +249,8 @@ int main () {
 
         if (clientId == 99)
             exit(0);
-        printf("[server] S-a conectat clientul cu descriptorul %d,"
-                "de la adresa %s.\n",client, conv_addr(from));
+        printf("[server] The client with descriptor %d has been connected"
+                "from address %s.\n",client, conv_addr(from));
         fflush(stdout);
     }
 }
