@@ -16,9 +16,12 @@
 
 #define PASSWORD_SIZE        128    // Maxim dimension of password
 #define USER_SIZE            128    // Maxim dimensions of user
-#define COMMAND_SIZE         128    // Size of comand
+#define COMMAND_SIZE         128    // Size of command
 #define SQL_COMMAND_MAX_SIZE 512    // Size of sql commands
 #define MAX_LOGGED_PLAYERS   20     // The maxim number of players connected
+#define NO_GAME_PLAYERS      2
+#define NO_QUESTIONS         10
+#define DATABASE_NAME        "QuizzGame.db"
 
 #define LOGIN_COMMAND   "login"
 #define NEWUSER_COMMAND "newuser"
@@ -35,28 +38,17 @@ struct Player {
     int loggedIn;
 };
 
+struct Game {
+    int playerIds[NO_GAME_PLAYERS];
+    int answers[NO_GAME_PLAYERS];
+    int questionCount;
+    char *currentQuestion;
+};
+
 // NULL init by default
 struct Player *players[MAX_LOGGED_PLAYERS];
 
 pthread_mutex_t mutex;
-
-//int select_query(void *data, int argc, char **argv, char **azColName){
-//#ifdef DEBUG
-//    printf("Select query\n");
-//    pritnf("First arg: |%s|\n", data);
-//    printf("Received and argc of %d\n", argc);
-//
-//    for (int i = 0; i < argc; i++)
-//        printf("Arguemnt %d : |%s| |%s|\n", i, argv[i], azColName[i]);
-//#endif
-//// Potentially useless shit!
-////    if (argv == NULL)
-////        return 0;
-////    else
-////        return 4;
-////
-//    return 0;
-//}
 
 int login_query(void *ret, int argc, char **argv, char **azColName) {
     int *retP = ret;
@@ -69,19 +61,31 @@ int register_query(void *NotUsed, int argc, char **argv, char **azColName) {
     return 0;
 }
 
-// Conversion function from IP to string
-char * conv_addr (struct sockaddr_in address) {
-    static char str[25];
-    char port[7];
+char *getNewQuestion(sqlite3 *db) {
 
-    // IP adress
-    strcpy (str, inet_ntoa (address.sin_addr));
-    
-    // Port used by client
-    bzero (port, 7);
-    sprintf (port, ":%d", ntohs (address.sin_port));    
-    strcat (str, port);
-    return (str);
+}
+
+sqlite3 *open_db() {
+    sqlite3 *db;
+    if (sqlite3_open(DATABASE_NAME, &db)) {
+        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+        exit(0);
+    } else {
+        fprintf(stdout, "Database opened successfully\n");
+        return db;
+    }
+}
+
+void *game_master(void *arg) {
+    struct Game *game = arg;
+
+    sqlite3 *db = open_db();
+
+    while (game->questionCount < NO_QUESTIONS) {
+        game->currentQuestion = getNewQuestion(db);
+    }
+
+
 }
 
 void *treat(void *arg) {
@@ -105,15 +109,7 @@ void *treat(void *arg) {
 
     pthread_mutex_unlock(&mutex);
 
-    sqlite3 *db;
-
-    // Open database
-    if (sqlite3_open("QuizzGame.db", &db)) {
-        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
-        exit(0);
-    } else {
-        fprintf(stdout, "Database opened succesfully\n");
-    }
+    sqlite3 *db = open_db();
 
     char buffer[READ_BUF_SIZE];
     buffer[read(data->client_fd, buffer, READ_BUF_SIZE)] = '\0';
@@ -227,16 +223,16 @@ int main () {
     printf("[server] Asteptam la portul %d...\n", PORT);
 
     int clientId = 0;
-    pthread_t thread_id[100];    //Thread id
+    pthread_t thread_id[100];    //Identificatorii thread-urilor care se vor crea
 
-    // Concurent server
+    // Concurrent server
     while (1) {
-        // Preparing client structure
+        // Prepare client structure
         struct sockaddr_in from;
         int len = sizeof(from);
         bzero(&from, sizeof(from));
 
-        // If a client is comeing, the connection is accepted
+        // If a client is coming, the connection is accepted
         int client = accept(socket_fd, (struct sockaddr *)&from, (socklen_t *)&len);
         if (client < 0) {
             perror("[server] Eroare la accept().\n");
