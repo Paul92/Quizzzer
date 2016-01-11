@@ -20,7 +20,10 @@
 #define SQL_COMMAND_MAX_SIZE 512    // Size of sql commands
 #define MAX_LOGGED_PLAYERS   20     // The maxim number of players connected
 #define NO_GAME_PLAYERS      2
+#define NO_OF_ANSWERS        4
 #define NO_QUESTIONS         10
+#define MAX_QUESTION_LENGTH  200
+#define MAX_ANSWER_LENGTH    200
 #define DATABASE_NAME        "QuizzGame.db"
 
 #define LOGIN_COMMAND   "login"
@@ -61,8 +64,57 @@ int register_query(void *NotUsed, int argc, char **argv, char **azColName) {
     return 0;
 }
 
-char *getNewQuestion(sqlite3 *db) {
+// The correct answer is stored on the first position of answers
+struct Question {
+    char question[MAX_QUESTION_LENGTH];
+    char answers[NO_OF_ANSWERS][MAX_ANSWER_LENGTH];
+};
 
+struct Question *newQuestion() {
+    return malloc(sizeof(struct Question));
+}
+
+void deleteQuestion(struct Question *question) {
+    free(question);
+}
+
+// For debugging purposes
+void printQuestion(struct Question *question) {
+    printf("Question: %s\n", question->question);
+    for (int index = 0; index < NO_OF_ANSWERS; index++) {
+        printf("Answer %d: %s\n", index, question->answers[index]);
+    }
+}
+
+
+int retreive_question_query(void *returnValue, int argc, char **argv, char **azColName) {
+    // Check if there are enough parameters returned from the database, which represent the question id,
+    // the question itself and the possible answers
+    if (argc != NO_OF_ANSWERS + 2) {
+        fprintf(stderr, "Wrong number of parameters received from database");
+        exit(0);
+    }
+
+    struct Question *question = returnValue;
+    strcpy(question->question, argv[1]);
+    for (int index = 0; index < NO_OF_ANSWERS; index++) {
+        strcpy(question->answers[index], argv[index + 2]);
+    }
+    return 0;
+}
+
+struct Question *getNewQuestion(sqlite3 *db) {
+    struct Question *question = newQuestion();
+    char *sql_command = "SELECT * FROM Questions ORDER BY RANDOM() LIMIT 1";
+    char *zErrMsg = NULL;
+
+    if (sqlite3_exec(db, sql_command, retreive_question_query, question, &zErrMsg) != SQLITE_OK) {
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+        exit(0);
+    }
+
+    return question;
 }
 
 sqlite3 *open_db() {
@@ -76,17 +128,17 @@ sqlite3 *open_db() {
     }
 }
 
-void *game_master(void *arg) {
-    struct Game *game = arg;
+//void *game_master(void *arg) {
+//    struct Game *game = arg;
 
-    sqlite3 *db = open_db();
+//    sqlite3 *db = open_db();
 
-    while (game->questionCount < NO_QUESTIONS) {
-        game->currentQuestion = getNewQuestion(db);
-    }
+//    while (game->questionCount < NO_QUESTIONS) {
+//        game->currentQuestion = getNewQuestion(db);
+//    }
 
 
-}
+//}
 
 void *treat(void *arg) {
 
@@ -127,7 +179,7 @@ void *treat(void *arg) {
         // login command
         if (strcmp(command, LOGIN_COMMAND) == 0) {
             sprintf(sql_command, "SELECT * FROM Users WHERE "
-                            "user = \"%s\" AND password = \"%s\";",
+                                 "user = \"%s\" AND password = \"%s\";",
                     username, password);
             strcpy(sql_command, "SELECT * FROM users;");
             printf("Doing login\n");
@@ -154,7 +206,7 @@ void *treat(void *arg) {
             }
         } else if (strcmp(command, NEWUSER_COMMAND) == 0) {
             sprintf(sql_command, "INSERT INTO Users(user, password) "
-                            "VALUES (\"%s\", \"%s\");",
+                                 "VALUES (\"%s\", \"%s\");",
                     username, password);
 
             if (sqlite3_exec(db, sql_command, register_query, NULL,
@@ -246,8 +298,5 @@ int main () {
 
         if (clientId == 99)
             exit(0);
-        printf("[server] S-a conectat clientul cu descriptorul %d,"
-                "de la adresa %s.\n",client, conv_addr(from));
-        fflush(stdout);
     }
 }
