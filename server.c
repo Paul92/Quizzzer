@@ -14,11 +14,11 @@
 
 #define READ_BUF_SIZE 1024
 
-#define PASSWORD_SIZE        128
-#define USER_SIZE            128
-#define COMMAND_SIZE         128
-#define SQL_COMMAND_MAX_SIZE 512
-#define MAX_LOGGED_PLAYERS   20
+#define PASSWORD_SIZE        128    // Maxim dimension of password
+#define USER_SIZE            128    // Maxim dimensions of user
+#define COMMAND_SIZE         128    // Size of comand
+#define SQL_COMMAND_MAX_SIZE 512    // Size of sql commands
+#define MAX_LOGGED_PLAYERS   20     // The maxim number of players connected
 
 #define LOGIN_COMMAND   "login"
 #define NEWUSER_COMMAND "newuser"
@@ -26,9 +26,9 @@
 #define QUIT_COMMAND    "quit"
 
 struct Thread_data {
-    int client_fd; //descriptorul intors de accept
+    int client_fd; // Descriptor returned by accept function
 };
-
+// Defining a structure which retains details about players
 struct Player {
     int fd;
     char *username;
@@ -69,15 +69,15 @@ int register_query(void *NotUsed, int argc, char **argv, char **azColName) {
     return 0;
 }
 
-// functie de convertire a adresei IP a clientului in sir de caractere 
+// Conversion function from IP to string
 char * conv_addr (struct sockaddr_in address) {
     static char str[25];
     char port[7];
 
-    // adresa IP a clientului 
+    // IP adress
     strcpy (str, inet_ntoa (address.sin_addr));
     
-    // portul utilizat de client
+    // Port used by client
     bzero (port, 7);
     sprintf (port, ":%d", ntohs (address.sin_port));    
     strcat (str, port);
@@ -127,6 +127,8 @@ void *treat(void *arg) {
     char sql_command[SQL_COMMAND_MAX_SIZE];
 
     while (1) {
+        // Check if username and password exists in database if client selected
+        // login command
         if (strcmp(command, LOGIN_COMMAND) == 0) {
             sprintf(sql_command, "SELECT * FROM Users WHERE "
                             "user = \"%s\" AND password = \"%s\";",
@@ -140,10 +142,13 @@ void *treat(void *arg) {
                 sqlite3_free(zErrMsg);
                 exit(0);
             }
+            // If username and password is not good, then will print an error
+            // mesage
             if (login_query_return == 0) {
                 printf("Login failed.\n");
                 write(data->client_fd, "FAILED\n", 8);
             } else {
+                // Login succed
                 printf("Login successful.\n");
                 write(data->client_fd, "OK\n", 4);
 
@@ -169,7 +174,7 @@ void *treat(void *arg) {
             if (players[playerId]->loggedIn) {
                 printf("[server] S-a deconectat clientul cu "
                                "descriptorul %d.\n", data->client_fd);
-                close(data->client_fd);           // inchidem conexiunea cu clientul
+                close(data->client_fd); // Closing the connection
             } else {
                 printf("[server] clientul cu descriptorul %d nu e logat.\n", data->client_fd);
             }
@@ -188,33 +193,32 @@ int main () {
         exit(0);
     }
 
-    // creare socket
     int socket_fd;
     if ((socket_fd = socket (AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("[server] Eroare la socket().\n");
         return errno;
     }
 
-    // setam pentru socket optiunea SO_REUSEADDR
-    int optval=1;               // optiune folosita pentru setsockopt()
+    // Setting option SO_REUSEADDR for socket
+    int optval=1; // Option used for setsockopt()
     setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 
-    // pregatim structurile de date
-    struct sockaddr_in server;  // structurile pentru server si clienti
+    // Data structures for clients and server
+    struct sockaddr_in server;
     bzero(&server, sizeof(server));
 
-    // umplem structura folosita de server
+    // Take values for structure server
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = htonl(INADDR_ANY);
     server.sin_port = htons(PORT);
 
-    // atasam socketul
+    // Ataching socket
     if (bind(socket_fd, (struct sockaddr *)&server, sizeof(struct sockaddr)) == -1) {
         perror("[server] Eroare la bind().\n");
         return errno;
     }
 
-    // punem serverul sa asculte daca vin clienti sa se conecteze
+    // The server is waiting for clients
     if (listen(socket_fd, 5) == -1) {
         perror("[server] Eroare la listen().\n");
         return errno;
@@ -223,19 +227,17 @@ int main () {
     printf("[server] Asteptam la portul %d...\n", PORT);
 
     int clientId = 0;
-    pthread_t thread_id[100];    //Identificatorii thread-urilor care se vor crea
+    pthread_t thread_id[100];    //Thread id
 
-    // servim in mod concurent clientii...
+    // Concurent server
     while (1) {
-        // pregatirea structurii client
+        // Preparing client structure
         struct sockaddr_in from;
         int len = sizeof(from);
         bzero(&from, sizeof(from));
 
-        // a venit un client, acceptam conexiunea
+        // If a client is comeing, the connection is accepted
         int client = accept(socket_fd, (struct sockaddr *)&from, (socklen_t *)&len);
-
-        // eroare la acceptarea conexiunii de la un client
         if (client < 0) {
             perror("[server] Eroare la accept().\n");
             continue;
