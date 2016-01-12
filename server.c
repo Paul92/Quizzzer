@@ -49,6 +49,7 @@ struct Game {
     int questionCount;
     pthread_barrier_t *barrier;
     struct Question *currentQuestion;
+    pthread_t thread_id;
 };
 
 struct Game *newGame() {
@@ -143,131 +144,158 @@ sqlite3 *open_db() {
     }
 }
 
-pthread_t gameMasters[MAX_GAME_MASTERS];
-
 void *game_master(void *arg) {
-    struct Game *game = arg;
-
-    sqlite3 *db = open_db();
-
-    while (game->questionCount < NO_QUESTIONS) {
-        game->currentQuestion = getNewQuestion(db);
-    }
+    printf("Game master spawned\n");
+//    struct Game *game = arg;
+//
+//    sqlite3 *db = open_db();
+//
+//    while (game->questionCount < NO_QUESTIONS) {
+//        game->currentQuestion = getNewQuestion(db);
+//    }
+    pthread_detach(pthread_self());
     return NULL;
 
 }
 
+struct Player *newPlayer(int fd) {
+    struct Player *player = malloc(sizeof(struct Player));
+
+    player->fd       = fd;
+    player->loggedIn = 0;
+    player->game     = NULL;
+    player->correctAnswers = 0;
+
+    return player;
+}
+
+void deletePlayer(struct Player *player) {
+    free(player);
+}
+
+void handle_login_command(sqlite3 *db, struct Player *player, char *username, char *password) {
+
+    int client_fd = player->fd;
+
+    char sql_command[SQL_COMMAND_MAX_SIZE];
+    sprintf(sql_command, "SELECT * FROM Users WHERE "
+                         "user = \"%s\" AND password = \"%s\";",
+            username, password);
+    strcpy(sql_command, "SELECT * FROM users;");
+    printf("Doing login\n");
+
+    char *zErrMsg = NULL;
+
+    int login_query_return = 0;
+    if (sqlite3_exec(db, sql_command, login_query,
+                     &login_query_return, &zErrMsg) != SQLITE_OK) {
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+        exit(0);
+    }
+    // If username and password is not good, then will print an error message
+    if (login_query_return == 0) {
+        printf("Login failed.\n");
+        write(client_fd, "FAILED\n", 8);
+    } else {
+        // Login succeeded
+        printf("Login successful.\n");
+        write(client_fd, "OK\n", 4);
+
+        pthread_mutex_lock(&mutex);
+        player->loggedIn = 1;
+        strcpy(player->username, username);
+
+        int noOfLoggedInPlayers = 0;
+        for (int playerIndex = 0; playerIndex < MAX_LOGGED_PLAYERS; playerIndex++)
+            if (players[playerIndex] != NULL && players[playerIndex]->game == NULL)
+                noOfLoggedInPlayers += players[playerIndex]->loggedIn;
+
+        pthread_mutex_unlock(&mutex);
+
+        if (noOfLoggedInPlayers == NO_GAME_PLAYERS) {
+            printf("Let the games begin!\n");
+            struct Game *game = newGame();
+            pthread_mutex_lock(&mutex);
+            for (int playerIndex = 0; playerIndex < MAX_LOGGED_PLAYERS; playerIndex++)
+                if (players[playerIndex] && players[playerIndex]->game == NULL && players[playerIndex]->loggedIn)
+                    players[playerIndex]->game = game;
+            pthread_mutex_unlock(&mutex);
+
+            pthread_create(&(game->thread_id), NULL, game_master, game);
+        }
+    }
+}
+
+// Inserting new user in database
+void handle_newuser_command(sqlite3 *db, struct Player *player, char *username, char *password) {
+    char sql_command[SQL_COMMAND_MAX_SIZE];
+
+    sprintf(sql_command, "INSERT INTO Users(user, password) "
+                         "VALUES (\"%s\", \"%s\");",
+                         username, password);
+    char *zErrMsg = NULL;
+
+    // If insertion has failed, then an error message will be printed
+    if (sqlite3_exec(db, sql_command, register_query, NULL,
+                     &zErrMsg) != SQLITE_OK) {
+        fprintf(stderr, "SQL error: %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+        exit(0);
+    } else {
+        fprintf(stdout, "You are now registered!\n");
+        write(player->fd, "OK\n", 4);
+    }
+}
+
+void handle_logout_command(struct Player *player) {
+    if (player->loggedIn) {
+        printf("[server] The client with"
+               "%d descriptor has logout.\n", player->fd);
+        pthread_mutex_lock(&mutex);
+        player->loggedIn = 0;
+        pthread_mutex_unlock(&mutex);
+        // TODO: REMOVE FROM ANY ACTIVE GAME
+    } else {
+        printf("[server] The client with %d descriptor"
+                "is not logged in\n", player->fd);
+    }
+}
+
 void *treat(void *arg) {
 
-    struct Thread_data *data = arg;
-
-    struct Player *currentPlayer = malloc(sizeof(currentPlayer));
-
-    currentPlayer->fd       = data->client_fd;
-    currentPlayer->loggedIn = 0;
-
-    pthread_mutex_lock(&mutex);
-
-    int playerId = 0;
-    for ( ; playerId < MAX_LOGGED_PLAYERS; playerId++)
-        if (players[playerId] == NULL)
-            break;
-
-    players[playerId] = currentPlayer;
-
-    pthread_mutex_unlock(&mutex);
+    struct Player *currentPlayer = arg;
 
     sqlite3 *db = open_db();
 
     char buffer[READ_BUF_SIZE];
-    buffer[read(data->client_fd, buffer, READ_BUF_SIZE)] = '\0';
-
-    char command[COMMAND_SIZE];
-    char username[USER_SIZE];
-    char password[PASSWORD_SIZE];
-    sscanf(buffer, "%s %s %s", command, username, password);
-
-    char *zErrMsg = NULL;
-    char sql_command[SQL_COMMAND_MAX_SIZE];
 
     while (1) {
+        buffer[read(currentPlayer->fd, buffer, READ_BUF_SIZE)] = '\0';
+
+        char command[COMMAND_SIZE];
+        char username[USER_SIZE];
+        char password[PASSWORD_SIZE];
+        sscanf(buffer, "%s %s %s", command, username, password);
+
+        printf("Received %s|%s|%s\n", command, username, password);
+
+
         // Check if username and password exists in database if client selected
         // login command
         if (strcmp(command, LOGIN_COMMAND) == 0) {
-            sprintf(sql_command, "SELECT * FROM Users WHERE "
-                                 "user = \"%s\" AND password = \"%s\";",
-                    username, password);
-            strcpy(sql_command, "SELECT * FROM users;");
-            printf("Doing login\n");
-            int login_query_return = 0;
-            if (sqlite3_exec(db, sql_command, login_query,
-                             &login_query_return, &zErrMsg) != SQLITE_OK) {
-                fprintf(stderr, "SQL error: %s\n", zErrMsg);
-                sqlite3_free(zErrMsg);
-                exit(0);
-            }
-            // If username and password is not good, then will print an error message
-            if (login_query_return == 0) {
-                printf("Login failed.\n");
-                write(data->client_fd, "FAILED\n", 8);
-            } else {
-                // Login succeeded
-                printf("Login successful.\n");
-                write(data->client_fd, "OK\n", 4);
-
-                pthread_mutex_lock(&mutex);
-                players[playerId]->loggedIn = 1;
-                strcpy(players[playerId]->username, username);
-
-                int noOfLoggedInPlayers = 0;
-                for (int playerIndex = 0; playerIndex < MAX_LOGGED_PLAYERS; playerIndex++)
-
-                    if (players[playerIndex]->game == NULL)
-                        noOfLoggedInPlayers += players[playerIndex]->loggedIn;
-
-                if (noOfLoggedInPlayers == NO_GAME_PLAYERS) {
-                    struct Game *game = newGame();
-                    for (int playerIndex = 0; playerIndex < MAX_LOGGED_PLAYERS; playerIndex++)
-                        if (players[playerIndex]->loggedIn)
-                            players[playerIndex]->game = game;
-
-                    for (int gameMasterId = 0; gameMasterId < MAX_GAME_MASTERS; gameMasterId++) {
-                        if (gameMasters[gameMasterId] == 0) {
-                            pthread_create(&gameMasters[gameMasterId], NULL, game_master, game);
-                        }
-                    }
-                }
-                pthread_mutex_unlock(&mutex);
-            }
+            handle_login_command(db, currentPlayer, username, password);
         } else if (strcmp(command, NEWUSER_COMMAND) == 0) {
-            // Inserting new user in database
-            sprintf(sql_command, "INSERT INTO Users(user, password) "
-                                 "VALUES (\"%s\", \"%s\");",
-                    username, password);
-            // If insertion has failed, then an error message will be printed
-            if (sqlite3_exec(db, sql_command, register_query, NULL,
-                             &zErrMsg) != SQLITE_OK) {
-                fprintf(stderr, "SQL error: %s\n", zErrMsg);
-                sqlite3_free(zErrMsg);
-                exit(0);
-            } else {
-                fprintf(stdout, "You are now registered!\n");
-                write(data->client_fd, "OK\n", 4);
-            }
+            handle_newuser_command(db, currentPlayer, username, password);
         } else if (strcmp(command, LOGOUT_COMMAND) == 0) {
-            if (players[playerId]->loggedIn) {
-                printf("[server] The client with"
-                       "%d descriptor has been disconected.\n", data->client_fd);
-                players[playerId]->loggedIn = 0;
-                // TODO: REMOVE FROM ANY ACTIVE GAME
-            } else {
-                printf("[server] The client with %d descriptor"
-                        "is not logged in\n", data->client_fd);
-            }
-            break;
+            handle_logout_command(currentPlayer);
         } else if (strcmp(command, QUIT_COMMAND) == 0) {
-            printf("[server] The client with" "%d descriptor has quit.\n", data->client_fd);
-            close(data->client_fd); // Closing the connection
+            printf("[server] The client with" "%d descriptor has quit.\n", currentPlayer->fd);
+            close(currentPlayer->fd); // Closing the connection
+            deletePlayer(currentPlayer);
+            break;
+        } else {
+            printf("Unknown command\n");
         }
     }
 
@@ -332,10 +360,22 @@ int main () {
             continue;
         }
 
+        struct Player *player = newPlayer(client);
+        pthread_mutex_lock(&mutex);
+
+        int playerId = 0;
+        for ( ; playerId < MAX_LOGGED_PLAYERS; playerId++)
+            if (players[playerId] == NULL)
+                break;
+
+        players[playerId] = player;
+
+        pthread_mutex_unlock(&mutex);
+
         struct Thread_data *thread_data = malloc(sizeof(struct Thread_data));
         thread_data->client_fd = client;
 
-        pthread_create(&thread_id[clientId++], NULL, &treat, thread_data);
+        pthread_create(&thread_id[clientId++], NULL, &treat, player);
 
         if (clientId == 99)
             exit(0);
