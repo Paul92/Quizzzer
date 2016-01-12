@@ -9,3 +9,5 @@ add_executable(server ${SERVER_SOURCE_FILES})
 set(INIT_SOURCE_FILES init_tables.c)
 add_executable(init ${INIT_SOURCE_FILES})
 
+set(INIT_SOURCE_FILES barrierExample.c)
+add_executable(barrier_test ${INIT_SOURCE_FILES})

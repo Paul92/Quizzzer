@@ -24,6 +24,7 @@
 #define NO_QUESTIONS         10
 #define MAX_QUESTION_LENGTH  200
 #define MAX_ANSWER_LENGTH    200
+#define MAX_GAME_MASTERS     MAX_LOGGED_PLAYERS / NO_GAME_PLAYERS
 #define DATABASE_NAME        "QuizzGame.db"
 
 #define LOGIN_COMMAND   "login"
@@ -37,16 +38,36 @@ struct Thread_data {
 // Defining a structure which retains details about players
 struct Player {
     int fd;
-    char *username;
+    char username[USER_SIZE];
     int loggedIn;
+    struct Game *game;
+    int correctAnswers;
 };
 
 // Defining a structure which retains details about game
 struct Game {
-    int playerIds[NO_GAME_PLAYERS];
-    int answers[NO_GAME_PLAYERS];
     int questionCount;
-    char *currentQuestion;
+    pthread_barrier_t *barrier;
+    struct Question *currentQuestion;
+};
+
+struct Game *newGame() {
+    struct Game *newGame = malloc(sizeof(struct Game));
+    newGame->questionCount = 0;
+    // Init barrier with NO_GAME_PLAYERS threads for the games and 1 for the game master thread
+    pthread_barrier_init(newGame->barrier, NULL, NO_GAME_PLAYERS + 1);
+    return newGame;
+}
+
+void deleteGame(struct Game *game) {
+    pthread_barrier_destroy(game->barrier);
+    free(game);
+}
+
+// The correct answer is stored on the first position of answers
+struct Question {
+    char question[MAX_QUESTION_LENGTH];
+    char answers[NO_OF_ANSWERS][MAX_ANSWER_LENGTH];
 };
 
 // NULL init by default
@@ -65,12 +86,6 @@ int register_query(void *NotUsed, int argc, char **argv, char **azColName) {
     return 0;
 }
 
-// The correct answer is stored on the first position of answers
-struct Question {
-    char question[MAX_QUESTION_LENGTH];
-    char answers[NO_OF_ANSWERS][MAX_ANSWER_LENGTH];
-};
-
 struct Question *newQuestion() {
     return malloc(sizeof(struct Question));
 }
@@ -87,8 +102,7 @@ void printQuestion(struct Question *question) {
     }
 }
 
-
-int retreive_question_query(void *returnValue, int argc, char **argv, char **azColName) {
+int retrieve_question_query(void *returnValue, int argc, char **argv, char **azColName) {
     // Check if there are enough parameters returned from the database, which represent the question id,
     // the question itself and the possible answers
     if (argc != NO_OF_ANSWERS + 2) {
@@ -109,7 +123,7 @@ struct Question *getNewQuestion(sqlite3 *db) {
     char *sql_command = "SELECT * FROM Questions ORDER BY RANDOM() LIMIT 1";
     char *zErrMsg = NULL;
 
-    if (sqlite3_exec(db, sql_command, retreive_question_query, question, &zErrMsg) != SQLITE_OK) {
+    if (sqlite3_exec(db, sql_command, retrieve_question_query, question, &zErrMsg) != SQLITE_OK) {
         fprintf(stderr, "SQL error: %s\n", zErrMsg);
         sqlite3_free(zErrMsg);
         exit(0);
@@ -129,6 +143,8 @@ sqlite3 *open_db() {
     }
 }
 
+pthread_t gameMasters[MAX_GAME_MASTERS];
+
 void *game_master(void *arg) {
     struct Game *game = arg;
 
@@ -137,7 +153,7 @@ void *game_master(void *arg) {
     while (game->questionCount < NO_QUESTIONS) {
         game->currentQuestion = getNewQuestion(db);
     }
-
+    return NULL;
 
 }
 
@@ -148,7 +164,6 @@ void *treat(void *arg) {
     struct Player *currentPlayer = malloc(sizeof(currentPlayer));
 
     currentPlayer->fd       = data->client_fd;
-    currentPlayer->username = NULL;
     currentPlayer->loggedIn = 0;
 
     pthread_mutex_lock(&mutex);
@@ -191,18 +206,37 @@ void *treat(void *arg) {
                 sqlite3_free(zErrMsg);
                 exit(0);
             }
-            // If username and password is not good, then will print an error
-            // mesage
+            // If username and password is not good, then will print an error message
             if (login_query_return == 0) {
                 printf("Login failed.\n");
                 write(data->client_fd, "FAILED\n", 8);
             } else {
-                // Login succed
+                // Login succeeded
                 printf("Login successful.\n");
                 write(data->client_fd, "OK\n", 4);
 
                 pthread_mutex_lock(&mutex);
                 players[playerId]->loggedIn = 1;
+                strcpy(players[playerId]->username, username);
+
+                int noOfLoggedInPlayers = 0;
+                for (int playerIndex = 0; playerIndex < MAX_LOGGED_PLAYERS; playerIndex++)
+
+                    if (players[playerIndex]->game == NULL)
+                        noOfLoggedInPlayers += players[playerIndex]->loggedIn;
+
+                if (noOfLoggedInPlayers == NO_GAME_PLAYERS) {
+                    struct Game *game = newGame();
+                    for (int playerIndex = 0; playerIndex < MAX_LOGGED_PLAYERS; playerIndex++)
+                        if (players[playerIndex]->loggedIn)
+                            players[playerIndex]->game = game;
+
+                    for (int gameMasterId = 0; gameMasterId < MAX_GAME_MASTERS; gameMasterId++) {
+                        if (gameMasters[gameMasterId] == 0) {
+                            pthread_create(&gameMasters[gameMasterId], NULL, game_master, game);
+                        }
+                    }
+                }
                 pthread_mutex_unlock(&mutex);
             }
         } else if (strcmp(command, NEWUSER_COMMAND) == 0) {
@@ -224,12 +258,16 @@ void *treat(void *arg) {
             if (players[playerId]->loggedIn) {
                 printf("[server] The client with"
                        "%d descriptor has been disconected.\n", data->client_fd);
-                close(data->client_fd); // Closing the connection
+                players[playerId]->loggedIn = 0;
+                // TODO: REMOVE FROM ANY ACTIVE GAME
             } else {
                 printf("[server] The client with %d descriptor"
                         "is not logged in\n", data->client_fd);
             }
             break;
+        } else if (strcmp(command, QUIT_COMMAND) == 0) {
+            printf("[server] The client with" "%d descriptor has quit.\n", data->client_fd);
+            close(data->client_fd); // Closing the connection
         }
     }
 
@@ -263,7 +301,7 @@ int main () {
     server.sin_addr.s_addr = htonl(INADDR_ANY);
     server.sin_port = htons(PORT);
 
-    // Ataching socket
+    // Attaching socket
     if (bind(socket_fd, (struct sockaddr *)&server, sizeof(struct sockaddr)) == -1) {
         perror("[server] bind() error.\n");
         return errno;
