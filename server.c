@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <string.h>
 #include <stdlib.h>
 #include <sqlite3.h>
@@ -14,23 +15,34 @@
 
 #define READ_BUF_SIZE 1024
 
-#define PASSWORD_SIZE        128    // Maxim dimension of password
-#define USER_SIZE            128    // Maxim dimensions of user
-#define COMMAND_SIZE         128    // Size of command
-#define SQL_COMMAND_MAX_SIZE 512    // Size of sql commands
-#define MAX_LOGGED_PLAYERS   20     // The maxim number of players connected
-#define NO_GAME_PLAYERS      2
-#define NO_OF_ANSWERS        4
-#define NO_QUESTIONS         10
-#define MAX_QUESTION_LENGTH  200
-#define MAX_ANSWER_LENGTH    200
-#define MAX_GAME_MASTERS     MAX_LOGGED_PLAYERS / NO_GAME_PLAYERS
-#define DATABASE_NAME        "QuizzGame.db"
+#define PASSWORD_SIZE             128    // Maxim dimension of password
+#define USER_SIZE                 128    // Maxim dimensions of user
+#define COMMAND_SIZE              128    // Size of command
+#define SQL_COMMAND_MAX_SIZE      512    // Size of sql commands
+#define MAX_LOGGED_PLAYERS        20     // The maxim number of players connected
+#define NO_GAME_PLAYERS           2
+#define NO_OF_ANSWERS             4
+#define NO_QUESTIONS              2
+#define MAX_QUESTION_LENGTH       200
+#define MAX_ANSWER_LENGTH         200
+#define ANSWER_TIMEOUT            15
+#define MAX_GAME_MASTERS          MAX_LOGGED_PLAYERS / NO_GAME_PLAYERS
+#define MAX_QUESTION_COMMAND_SIZE 2014
+#define MAX_SCOREBOARD_COMMAND_SIZE 2014
 
-#define LOGIN_COMMAND   "login"
-#define NEWUSER_COMMAND "newuser"
-#define LOGOUT_COMMAND  "logout"
-#define QUIT_COMMAND    "quit"
+#define DATABASE_NAME             "QuizzGame.db"
+
+#define LOGIN_COMMAND             "login"
+#define NEWUSER_COMMAND           "newuser"
+#define LOGOUT_COMMAND            "logout"
+#define QUIT_COMMAND              "quit"
+#define GAME_STARTED_COMMAND      "game_started"
+#define GAME_NEWQUESTION_COMMAND  "question "
+#define GAME_SCOREBOARD_COMMAND   "scoreboard "
+#define ANSWER_COMMAND            "answer"
+#define GAME_END_COMMAND          "game_end"
+
+void *game_master(void *arg);
 
 struct Thread_data {
     int client_fd; // Descriptor returned by accept function
@@ -50,6 +62,7 @@ struct Game {
     pthread_barrier_t *barrier;
     struct Question *currentQuestion;
     pthread_t thread_id;
+    int ended;
 };
 
 struct Game *newGame() {
@@ -57,6 +70,7 @@ struct Game *newGame() {
     newGame->questionCount = 0;
     // Init barrier with NO_GAME_PLAYERS threads for the games and 1 for the game master thread
     pthread_barrier_init(newGame->barrier, NULL, NO_GAME_PLAYERS + 1);
+    newGame->ended = 0;
     return newGame;
 }
 
@@ -144,20 +158,6 @@ sqlite3 *open_db() {
     }
 }
 
-void *game_master(void *arg) {
-    printf("Game master spawned\n");
-//    struct Game *game = arg;
-//
-//    sqlite3 *db = open_db();
-//
-//    while (game->questionCount < NO_QUESTIONS) {
-//        game->currentQuestion = getNewQuestion(db);
-//    }
-    pthread_detach(pthread_self());
-    return NULL;
-
-}
-
 struct Player *newPlayer(int fd) {
     struct Player *player = malloc(sizeof(struct Player));
 
@@ -173,15 +173,18 @@ void deletePlayer(struct Player *player) {
     free(player);
 }
 
-void handle_login_command(sqlite3 *db, struct Player *player, char *username, char *password) {
+enum LoginCodes {LOGIN_FAILED, LOGIN_SUCESSFUL, GAME_STARTED};
+
+enum LoginCodes handle_login_command(sqlite3 *db, struct Player *player,
+                                     char *username, char *password) {
 
     int client_fd = player->fd;
 
     char sql_command[SQL_COMMAND_MAX_SIZE];
     sprintf(sql_command, "SELECT * FROM Users WHERE "
                          "user = \"%s\" AND password = \"%s\";",
-            username, password);
-    strcpy(sql_command, "SELECT * FROM users;");
+                         username, password);
+//    strcpy(sql_command, "SELECT * FROM users;");
     printf("Doing login\n");
 
     char *zErrMsg = NULL;
@@ -197,6 +200,7 @@ void handle_login_command(sqlite3 *db, struct Player *player, char *username, ch
     if (login_query_return == 0) {
         printf("Login failed.\n");
         write(client_fd, "FAILED\n", 8);
+        return LOGIN_FAILED;
     } else {
         // Login succeeded
         printf("Login successful.\n");
@@ -223,8 +227,11 @@ void handle_login_command(sqlite3 *db, struct Player *player, char *username, ch
             pthread_mutex_unlock(&mutex);
 
             pthread_create(&(game->thread_id), NULL, game_master, game);
+
+            return GAME_STARTED;
         }
     }
+    return LOGIN_SUCESSFUL;
 }
 
 // Inserting new user in database
@@ -262,6 +269,82 @@ void handle_logout_command(struct Player *player) {
     }
 }
 
+void handle_answer_command(struct Player *player, char *answer, int correctAnswer) {
+    int answerId;
+    sscanf(answer, "%d", &answerId);
+    if (answerId == correctAnswer) {
+        player->correctAnswers++;
+        write(player->fd, "OK\n", 4);
+    } else {
+        write(player->fd, "WRONG\n", 7);
+    }
+}
+
+void swap(int *a, int *b) {
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+int *randomArray(int n) {
+    int *arr = malloc(n * sizeof(int));
+    for (int index = 0; index < n; index++)
+        arr[index] = index;
+    srand(time(NULL));
+    // Warning: non uniform distribution
+    for (int index = 0; index < n; index++) {
+        int rnd = rand() % n;
+        swap(arr + index, arr + rnd);
+    }
+    return arr;
+}
+
+void scoreUpdate(struct Game *game) {
+    char newScoreboardCommand[MAX_SCOREBOARD_COMMAND_SIZE];
+    strcpy(newScoreboardCommand, GAME_SCOREBOARD_COMMAND);
+    for (int player = 0; player < MAX_LOGGED_PLAYERS; player++) {
+        if (players[player] && players[player]->game == game) {
+            sprintf(newScoreboardCommand, "%s|%s:%d", newScoreboardCommand,
+                    players[player]->username, players[player]->correctAnswers);
+        }
+    }
+    strcat(newScoreboardCommand, "\n");
+    for (int player = 0; player < MAX_LOGGED_PLAYERS; player++) {
+        if (players[player] && players[player]->game == game) {
+            write(players[player]->fd, newScoreboardCommand,
+                  strlen(newScoreboardCommand));
+        }
+    }
+}
+
+void start_game_notice(struct Game *game) {
+    for (int player = 0; player < MAX_LOGGED_PLAYERS; player++)
+        if (players[player] && players[player]->game == game)
+            write(players[player]->fd, GAME_STARTED_COMMAND, strlen(GAME_STARTED_COMMAND));
+}
+
+void *game_master(void *arg) {
+    struct Game *game = arg;
+    start_game_notice(game);
+
+    sqlite3 *db = open_db();
+    scoreUpdate(game);
+
+    while (game->questionCount < NO_QUESTIONS) {
+        game->currentQuestion = getNewQuestion(db);
+        pthread_barrier_wait(game->barrier);
+        sleep(ANSWER_TIMEOUT);
+        pthread_barrier_wait(game->barrier);
+        deleteQuestion(game->currentQuestion);
+        sleep(1);
+        scoreUpdate(game);
+        pthread_barrier_wait(game->barrier);
+        game->questionCount++;
+    }
+    pthread_detach(pthread_self());
+    return NULL;
+}
+
 void *treat(void *arg) {
 
     struct Player *currentPlayer = arg;
@@ -269,17 +352,52 @@ void *treat(void *arg) {
     sqlite3 *db = open_db();
 
     char buffer[READ_BUF_SIZE];
+    int correctAnswer = 0;
 
     while (1) {
-        buffer[read(currentPlayer->fd, buffer, READ_BUF_SIZE)] = '\0';
+        // Warning: race condition ahead...
+        if (currentPlayer->game != NULL) {
+            pthread_barrier_wait(currentPlayer->game->barrier);
+
+            int *shuffler = randomArray(NO_OF_ANSWERS);
+            char newQuestionCommand[MAX_QUESTION_COMMAND_SIZE];
+            strcpy(newQuestionCommand, GAME_NEWQUESTION_COMMAND);
+            sprintf(newQuestionCommand, "%s|%s", newQuestionCommand,
+                    currentPlayer->game->currentQuestion->question);
+            for (int index = 0; index < NO_OF_ANSWERS; index++) {
+                if (shuffler[index] == 0)
+                    correctAnswer = index;
+                sprintf(newQuestionCommand, "%s|%s", newQuestionCommand,
+                        currentPlayer->game->currentQuestion->answers[shuffler[index]]);
+            }
+
+            free(shuffler);
+
+            strcat(newQuestionCommand, "\n");
+            write(currentPlayer->fd, newQuestionCommand,
+                  strlen(newQuestionCommand));
+
+            pthread_barrier_wait(currentPlayer->game->barrier);
+            pthread_barrier_wait(currentPlayer->game->barrier);
+
+            if (currentPlayer->game->questionCount == NO_QUESTIONS) {
+                write(currentPlayer->fd, GAME_END_COMMAND, strlen(GAME_END_COMMAND));
+            }
+
+        }
+
+        int readRet = read(currentPlayer->fd, buffer, READ_BUF_SIZE);
 
         char command[COMMAND_SIZE];
         char username[USER_SIZE];
         char password[PASSWORD_SIZE];
-        sscanf(buffer, "%s %s %s", command, username, password);
 
-        printf("Received %s|%s|%s\n", command, username, password);
-
+        if (readRet > 0) {
+            buffer[readRet] = '\0';
+            sscanf(buffer, "%s %s %s", command, username, password);
+            printf("Received %s|%s|%s\n", command, username, password);
+        } else
+            command[0] = '\0';
 
         // Check if username and password exists in database if client selected
         // login command
@@ -289,13 +407,16 @@ void *treat(void *arg) {
             handle_newuser_command(db, currentPlayer, username, password);
         } else if (strcmp(command, LOGOUT_COMMAND) == 0) {
             handle_logout_command(currentPlayer);
+        } else if (strcmp(command, ANSWER_COMMAND) == 0) {
+            handle_answer_command(currentPlayer, username, correctAnswer);
         } else if (strcmp(command, QUIT_COMMAND) == 0) {
             printf("[server] The client with" "%d descriptor has quit.\n", currentPlayer->fd);
             close(currentPlayer->fd); // Closing the connection
             deletePlayer(currentPlayer);
             break;
         } else {
-            printf("Unknown command\n");
+            if (readRet > 0)
+                printf("Unknown command\n");
         }
     }
 
@@ -360,6 +481,7 @@ int main () {
             continue;
         }
 
+        fcntl(client, F_SETFL, fcntl(client, F_GETFL, 0) | O_NONBLOCK);
         struct Player *player = newPlayer(client);
         pthread_mutex_lock(&mutex);
 
