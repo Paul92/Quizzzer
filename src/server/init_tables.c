@@ -13,7 +13,7 @@ int main(int argc, char* argv[]) {
     sqlite3 *db;
 
     // Open database
-    if (sqlite3_open("QuizzGame.db", &db)) {
+    if (sqlite3_open("../QuizzGame.db", &db)) {
         fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
         exit(0);
     } else {

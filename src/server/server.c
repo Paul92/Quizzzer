@@ -30,7 +30,7 @@
 #define MAX_QUESTION_COMMAND_SIZE 2014
 #define MAX_SCOREBOARD_COMMAND_SIZE 2014
 
-#define DATABASE_NAME             "QuizzGame.db"
+#define DATABASE_NAME             "../QuizzGame.db"
 
 #define LOGIN_COMMAND             "login"
 #define NEWUSER_COMMAND           "newuser"
