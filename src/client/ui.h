@@ -4,7 +4,6 @@
 namespace Ui {
     class LoginWindow;
     class QuestionWindow;
-    class ErrorWindow;
 }
 
 #endif // UI_H
