@@ -1,20 +1,17 @@
-#ifndef QUIZZERCLIENT_H
-#define QUIZZERCLIENT_H
+#ifndef LOGIN_H
+#define LOGIN_H
 
 #include <QMainWindow>
 #include "networkHandler.h"
+#include "ui.h"
 
-namespace Ui {
-class QuizzerClient;
-}
-
-class QuizzerClient : public QMainWindow
+class Login : public QMainWindow
 {
     Q_OBJECT
 
 public:
-    explicit QuizzerClient(QWidget *parent = 0);
-    ~QuizzerClient();
+    explicit Login(NetworkHandler &, QWidget *parent = 0);
+    ~Login();
 
 public slots:
     void login();
@@ -23,16 +20,22 @@ public slots:
     void registerUnsucessfull();
     void loginSucessfull();
     void registerSucessfull();
+    void socketFailureSlot();
+    void DNSFailureSlot();
+    void connectionFailureSlot();
 
 signals:
     void loginSignal(const QString &, const QString &);
     void regSignal(const QString &, const QString &);
 
 
+private slots:
+    void on_registerBtn_released();
+
 private:
-    Ui::QuizzerClient *ui;
-    NetworkHandler network;
+    Ui::LoginWindow *ui;
+    NetworkHandler &network;
     bool checkUserPass();
 };
 
-#endif // QUIZZERCLIENT_H
+#endif // LOGIN_H

@@ -18,6 +18,9 @@ signals:
     void registerFailed();
     void loginSucessfull();
     void registerSucessfull();
+    void socketFailureSignal();
+    void DNSFailureSignal();
+    void connectionFailureSignal();
 
 private:
     QString host;

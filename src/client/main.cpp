@@ -1,11 +1,18 @@
-#include "quizzerclient.h"
+#include "login.h"
+#include "question.h"
+#include "networkHandler.h"
+#include "error.h"
 #include <QApplication>
 
 int main(int argc, char *argv[])
 {
 
     QApplication a(argc, argv);
-    QuizzerClient w;
+
+    NetworkHandler network;
+    Login w(network);
+//Question w(network);
+//Error w("LALA");
 
     w.show();
 

@@ -13,11 +13,16 @@ TEMPLATE = app
 
 
 SOURCES += main.cpp\
-        quizzerclient.cpp \
-    networkHandler.cpp
+    networkHandler.cpp \
+    login.cpp \
+    question.cpp
 
-HEADERS  += quizzerclient.h \
-    networkHandler.h
+HEADERS  += \
+    networkHandler.h \
+    login.h \
+    question.h \
+    ui.h
 
 FORMS    += \
-    login.ui
+    login.ui \
+    question.ui

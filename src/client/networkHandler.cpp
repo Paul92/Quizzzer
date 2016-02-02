@@ -7,6 +7,10 @@
 #include <netinet/in.h>
 #include <netdb.h>
 
+#include "error.h"
+#include <QMessageBox>
+#include <QApplication>
+
 NetworkHandler::NetworkHandler(QObject *parent, QString host, int port) : QObject(parent), host(host), port(port)
 {
     struct sockaddr_in serv_addr;
@@ -14,15 +18,18 @@ NetworkHandler::NetworkHandler(QObject *parent, QString host, int port) : QObjec
 
     this->sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
- //   if (this->sockfd < 0)
-  //      error("ERROR opening socket");
+
+    if (this->sockfd > 0) {
+        QMessageBox::critical(0, tr("Eroare"), tr("Conectarea la server nu a reusit"));
+        exit(0);
+    }
 
     server = gethostbyname(this->host.toLatin1().data());
 
-//    if (server == NULL) {
-//        fprintf(stderr,"ERROR, no such host\n");
-//        exit(0);
-//    }
+    if (server == NULL) {
+        QMessageBox::critical(0, tr("Eroare"), tr("Conectarea la server nu a reusit"));
+        exit(0);
+    }
 
     bzero((char *)&serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
@@ -33,10 +40,10 @@ NetworkHandler::NetworkHandler(QObject *parent, QString host, int port) : QObjec
 
     serv_addr.sin_port = htons(port);
 
-    ::connect(this->sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr));
-
-//    if (connect(this->sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0)
-//        error("ERROR connecting");
+    if (::connect(this->sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) {
+        QMessageBox::critical(0, tr("Eroare"), tr("Conectarea la server nu a reusit"));
+        exit(0);
+    }
 }
 
 void NetworkHandler::loginSlot(const QString &username, const QString &password) {

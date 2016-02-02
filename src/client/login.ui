@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>QuizzerClient</class>
- <widget class="QMainWindow" name="QuizzerClient">
+ <class>LoginWindow</class>
+ <widget class="QMainWindow" name="LoginWindow">
   <property name="geometry">
    <rect>
     <x>0</x>
     <y>0</y>
     <width>441</width>
-    <height>135</height>
+    <height>153</height>
    </rect>
   </property>
   <property name="windowTitle">
