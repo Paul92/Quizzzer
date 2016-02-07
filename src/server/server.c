@@ -36,9 +36,9 @@
 #define NEWUSER_COMMAND           "newuser"
 #define LOGOUT_COMMAND            "logout"
 #define QUIT_COMMAND              "quit"
-#define GAME_STARTED_COMMAND      "game_started"
-#define GAME_NEWQUESTION_COMMAND  "question "
-#define GAME_SCOREBOARD_COMMAND   "scoreboard "
+#define GAME_STARTED_COMMAND      "game_started\n"
+#define GAME_NEWQUESTION_COMMAND  "question"
+#define GAME_SCOREBOARD_COMMAND   "scoreboard"
 #define ANSWER_COMMAND            "answer"
 #define GAME_END_COMMAND          "game_end"
 
@@ -299,7 +299,7 @@ int *randomArray(int n) {
     return arr;
 }
 
-void scoreUpdate(struct Game *game) {
+void scoreUpdate(struct Game *game, int fd) {
     char newScoreboardCommand[MAX_SCOREBOARD_COMMAND_SIZE];
     strcpy(newScoreboardCommand, GAME_SCOREBOARD_COMMAND);
     for (int player = 0; player < MAX_LOGGED_PLAYERS; player++) {
@@ -309,15 +309,17 @@ void scoreUpdate(struct Game *game) {
         }
     }
     strcat(newScoreboardCommand, "\n");
-    for (int player = 0; player < MAX_LOGGED_PLAYERS; player++) {
-        if (players[player] && players[player]->game == game) {
-            write(players[player]->fd, newScoreboardCommand,
-                  strlen(newScoreboardCommand));
-        }
-    }
+    write(fd, newScoreboardCommand, strlen(newScoreboardCommand));
+//    for (int player = 0; player < MAX_LOGGED_PLAYERS; player++) {
+//        if (players[player] && players[player]->game == game) {
+//            write(players[player]->fd, newScoreboardCommand,
+//                  strlen(newScoreboardCommand));
+//        }
+//    }
 }
 
 void start_game_notice(struct Game *game) {
+    sleep(1);
     for (int player = 0; player < MAX_LOGGED_PLAYERS; player++)
         if (players[player] && players[player]->game == game)
             write(players[player]->fd, GAME_STARTED_COMMAND, strlen(GAME_STARTED_COMMAND));
@@ -328,19 +330,28 @@ void *game_master(void *arg) {
     start_game_notice(game);
 
     sqlite3 *db = open_db();
-    scoreUpdate(game);
+   // scoreUpdate(game);
+
+    printf("Game question count %d\n", game->questionCount);
 
     while (game->questionCount < NO_QUESTIONS) {
+        printf("Getting new question\n");
+        pthread_barrier_wait(game->barrier);
         game->currentQuestion = getNewQuestion(db);
+        printf("Got question. Waiting at barrier\n");
         pthread_barrier_wait(game->barrier);
+        printf("Going to sleep\n");
         sleep(ANSWER_TIMEOUT);
+        printf("Woke up. Waiting...\n");
         pthread_barrier_wait(game->barrier);
+        printf("Barrier raised. Performing cleanup\n");
         deleteQuestion(game->currentQuestion);
         sleep(1);
-        scoreUpdate(game);
+   //     scoreUpdate(game);
         pthread_barrier_wait(game->barrier);
         game->questionCount++;
     }
+    printf("Game master ended");
     pthread_detach(pthread_self());
     return NULL;
 }
@@ -357,33 +368,38 @@ void *treat(void *arg) {
     while (1) {
         // Warning: race condition ahead...
         if (currentPlayer->game != NULL) {
-            pthread_barrier_wait(currentPlayer->game->barrier);
-
-            int *shuffler = randomArray(NO_OF_ANSWERS);
-            char newQuestionCommand[MAX_QUESTION_COMMAND_SIZE];
-            strcpy(newQuestionCommand, GAME_NEWQUESTION_COMMAND);
-            sprintf(newQuestionCommand, "%s|%s", newQuestionCommand,
-                    currentPlayer->game->currentQuestion->question);
-            for (int index = 0; index < NO_OF_ANSWERS; index++) {
-                if (shuffler[index] == 0)
-                    correctAnswer = index;
-                sprintf(newQuestionCommand, "%s|%s", newQuestionCommand,
-                        currentPlayer->game->currentQuestion->answers[shuffler[index]]);
-            }
-
-            free(shuffler);
-
-            strcat(newQuestionCommand, "\n");
-            write(currentPlayer->fd, newQuestionCommand,
-                  strlen(newQuestionCommand));
-
-            pthread_barrier_wait(currentPlayer->game->barrier);
-            pthread_barrier_wait(currentPlayer->game->barrier);
-
             if (currentPlayer->game->questionCount == NO_QUESTIONS) {
                 write(currentPlayer->fd, GAME_END_COMMAND, strlen(GAME_END_COMMAND));
-            }
+                // TODO: clear memory leak
+                currentPlayer->game = NULL;
+            } else {
+                pthread_barrier_wait(currentPlayer->game->barrier);
+                printf("Player in game\n");
+                scoreUpdate(currentPlayer->game, currentPlayer->fd);
+                pthread_barrier_wait(currentPlayer->game->barrier);
 
+                int *shuffler = randomArray(NO_OF_ANSWERS);
+                char newQuestionCommand[MAX_QUESTION_COMMAND_SIZE];
+                printf("Sending question command...\n");
+                strcpy(newQuestionCommand, GAME_NEWQUESTION_COMMAND);
+                sprintf(newQuestionCommand, "%s|%s", newQuestionCommand,
+                        currentPlayer->game->currentQuestion->question);
+                for (int index = 0; index < NO_OF_ANSWERS; index++) {
+                    if (shuffler[index] == 0)
+                        correctAnswer = index;
+                    sprintf(newQuestionCommand, "%s|%s", newQuestionCommand,
+                            currentPlayer->game->currentQuestion->answers[shuffler[index]]);
+                }
+
+                free(shuffler);
+
+                strcat(newQuestionCommand, "\n");
+                write(currentPlayer->fd, newQuestionCommand,
+                      strlen(newQuestionCommand));
+                printf("Question command sent. waiting reply...");
+                pthread_barrier_wait(currentPlayer->game->barrier);
+                pthread_barrier_wait(currentPlayer->game->barrier);
+            }
         }
 
         int readRet = read(currentPlayer->fd, buffer, READ_BUF_SIZE);

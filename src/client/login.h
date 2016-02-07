@@ -1,11 +1,11 @@
 #ifndef LOGIN_H
 #define LOGIN_H
 
-#include <QMainWindow>
+#include <QDialog>
 #include "networkHandler.h"
 #include "ui.h"
 
-class Login : public QMainWindow
+class Login : public QDialog
 {
     Q_OBJECT
 
@@ -16,8 +16,8 @@ public:
 public slots:
     void login();
     void reg();
-    void loginUnsucessfull();
-    void registerUnsucessfull();
+    void loginFailed();
+    void registerFailed();
     void loginSucessfull();
     void registerSucessfull();
     void socketFailureSlot();

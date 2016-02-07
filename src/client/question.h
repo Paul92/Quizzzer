@@ -1,11 +1,15 @@
 #ifndef QUESTION_H
 #define QUESTION_H
 
-#include <QMainWindow>
+#include <QDialog>
+#include <QLabel>
 #include "ui.h"
 #include "networkHandler.h"
 
-class Question : public QMainWindow
+#include "questionData.h"
+#include "scoreTable.h"
+
+class Question : public QDialog
 {
     Q_OBJECT
 
@@ -15,6 +19,14 @@ public:
 
 public slots:
 
+    void newScoreboardSlot(ScoreTable);
+    void newQuestionSlot(QuestionData);
+
+    void answer_A();
+    void answer_B();
+    void answer_C();
+    void answer_D();
+
 signals:
 
 
@@ -22,6 +34,11 @@ signals:
 private:
     Ui::QuestionWindow *ui;
     NetworkHandler &network;
+
+    void enableButtons();
+    void disableButtons();
+
+    QLabel *scoreboardLabel[4];
 };
 
 

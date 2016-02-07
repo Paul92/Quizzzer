@@ -2,6 +2,7 @@
 #include "question.h"
 #include "networkHandler.h"
 #include "error.h"
+#include "waitWindow.h"
 #include <QApplication>
 
 int main(int argc, char *argv[])
@@ -11,10 +12,18 @@ int main(int argc, char *argv[])
 
     NetworkHandler network;
     Login w(network);
+
+
 //Question w(network);
 //Error w("LALA");
 
-    w.show();
+    w.exec();
+    WaitWindow x(network);
+    x.exec();
+    Question q(network);
+    q.show();
+
+
 
     return a.exec();
 }

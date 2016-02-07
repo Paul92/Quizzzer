@@ -6,11 +6,14 @@
 #include  "error.h"
 
 Login::Login(NetworkHandler &network, QWidget *parent) :
-    QMainWindow(parent),
+    QDialog(parent),
     ui(new Ui::LoginWindow),
     network(network)
 {
     ui->setupUi(this);
+
+    setWindowFlags(Qt::FramelessWindowHint);
+    setWindowFlags(Qt::WindowTitleHint);
 
     connect(ui->registerBtn, SIGNAL(released()), this, SLOT(reg()));
     connect(ui->loginBtn, SIGNAL(released()), this, SLOT(login()));
@@ -21,6 +24,12 @@ Login::Login(NetworkHandler &network, QWidget *parent) :
     connect(&network, SIGNAL(socketFailureSignal()), this, SLOT(socketFailureSlot()));
     connect(&network, SIGNAL(DNSFailureSignal()), this, SLOT(DNSFailureSlot()));
     connect(&network, SIGNAL(connectionFailureSignal()), this, SLOT(connectionFailureSlot()));
+
+    connect(&network, SIGNAL(loginSucessfull()), this, SLOT(loginSucessfull()));
+    connect(&network, SIGNAL(loginFailed()), this, SLOT(loginFailed()));
+
+    connect(&network, SIGNAL(registerSucessfull()), this, SLOT(registerSucessfull()));
+    connect(&network, SIGNAL(registerFailed()), this, SLOT(registerFailed()));
 }
 
 Login::~Login()
@@ -46,16 +55,17 @@ void Login::reg() {
         emit regSignal(ui->usernameLineEdit->text(), ui->passwordLineEdit->text());
 }
 
-void Login::registerUnsucessfull() {
+void Login::registerFailed() {
     ui->messageLabel->setText("Inregistrearea nu a avut success");
 }
 
-void Login::loginUnsucessfull() {
+void Login::loginFailed() {
     ui->messageLabel->setText("Logarea nu a avut success");
 }
 
 void Login::loginSucessfull() {
-    // clear window; let the games begin
+    this->ui->messageLabel->setText("OK");
+    this->close();
 }
 
 void Login::registerSucessfull() {

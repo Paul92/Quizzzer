@@ -15,14 +15,21 @@ TEMPLATE = app
 SOURCES += main.cpp\
     networkHandler.cpp \
     login.cpp \
-    question.cpp
+    question.cpp \
+    waitWindow.cpp \
+    questionData.cpp \
+    scoreTable.cpp
 
 HEADERS  += \
     networkHandler.h \
     login.h \
     question.h \
-    ui.h
+    ui.h \
+    waitWindow.h \
+    questionData.h \
+    scoreTable.h
 
 FORMS    += \
     login.ui \
-    question.ui
+    question.ui \
+    wait.ui
