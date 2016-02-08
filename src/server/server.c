@@ -364,6 +364,7 @@ void *treat(void *arg) {
         if (currentPlayer->game != NULL) {
             if (currentPlayer->game->questionCount == NO_QUESTIONS) {
                 printf("GAME END\n");
+                sleep(1);
                 write(currentPlayer->fd, GAME_END_COMMAND, strlen(GAME_END_COMMAND));
                 sleep(1);
                 scoreUpdate(currentPlayer->game, currentPlayer->fd);
@@ -371,8 +372,10 @@ void *treat(void *arg) {
                 currentPlayer->game = NULL;
             } else {
                 pthread_barrier_wait(&(currentPlayer->game->barrier));
+                sleep(1);
                 scoreUpdate(currentPlayer->game, currentPlayer->fd);
                 pthread_barrier_wait(&(currentPlayer->game->barrier));
+                sleep(1);
 
                 int *shuffler = randomArray(NO_OF_ANSWERS);
                 char newQuestionCommand[MAX_QUESTION_COMMAND_SIZE];
