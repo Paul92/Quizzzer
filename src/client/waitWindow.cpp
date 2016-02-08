@@ -17,7 +17,9 @@ WaitWindow::WaitWindow(NetworkHandler &network, QWidget *parent) :
 }
 
 void WaitWindow::gameStartSlot() {
+    qDebug("Game start slot called");
     this->close();
+    qDebug("WAIT WINDOW CLOSED");
 }
 
 WaitWindow::~WaitWindow()

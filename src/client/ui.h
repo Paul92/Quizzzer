@@ -5,6 +5,7 @@ namespace Ui {
     class LoginWindow;
     class QuestionWindow;
     class WaitWindow;
+    class EndGameWindow;
 }
 
 #endif // UI_H

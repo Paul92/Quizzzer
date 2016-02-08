@@ -3,6 +3,7 @@
 #include "networkHandler.h"
 #include "error.h"
 #include "waitWindow.h"
+#include "endgame.h"
 #include <QApplication>
 
 int main(int argc, char *argv[])
@@ -21,7 +22,9 @@ int main(int argc, char *argv[])
     WaitWindow x(network);
     x.exec();
     Question q(network);
-    q.show();
+    q.exec();
+    EndGame e(network);
+    e.show();
 
 
 

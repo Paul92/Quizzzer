@@ -36,11 +36,11 @@
 #define NEWUSER_COMMAND           "newuser"
 #define LOGOUT_COMMAND            "logout"
 #define QUIT_COMMAND              "quit"
-#define GAME_STARTED_COMMAND      "game_started\n"
+#define GAME_STARTED_COMMAND      "game_started\n\0"
 #define GAME_NEWQUESTION_COMMAND  "question"
 #define GAME_SCOREBOARD_COMMAND   "scoreboard"
 #define ANSWER_COMMAND            "answer"
-#define GAME_END_COMMAND          "game_end"
+#define GAME_END_COMMAND          "game_end\n\0"
 
 void *game_master(void *arg);
 
@@ -59,7 +59,7 @@ struct Player {
 // Defining a structure which retains details about game
 struct Game {
     int questionCount;
-    pthread_barrier_t *barrier;
+    pthread_barrier_t barrier;
     struct Question *currentQuestion;
     pthread_t thread_id;
     int ended;
@@ -69,13 +69,13 @@ struct Game *newGame() {
     struct Game *newGame = malloc(sizeof(struct Game));
     newGame->questionCount = 0;
     // Init barrier with NO_GAME_PLAYERS threads for the games and 1 for the game master thread
-    pthread_barrier_init(newGame->barrier, NULL, NO_GAME_PLAYERS + 1);
+    pthread_barrier_init(&(newGame->barrier), NULL, NO_GAME_PLAYERS + 1);
     newGame->ended = 0;
     return newGame;
 }
 
 void deleteGame(struct Game *game) {
-    pthread_barrier_destroy(game->barrier);
+    pthread_barrier_destroy(&(game->barrier));
     free(game);
 }
 
@@ -184,7 +184,6 @@ enum LoginCodes handle_login_command(sqlite3 *db, struct Player *player,
     sprintf(sql_command, "SELECT * FROM Users WHERE "
                          "user = \"%s\" AND password = \"%s\";",
                          username, password);
-//    strcpy(sql_command, "SELECT * FROM users;");
     printf("Doing login\n");
 
     char *zErrMsg = NULL;
@@ -323,6 +322,7 @@ void start_game_notice(struct Game *game) {
     for (int player = 0; player < MAX_LOGGED_PLAYERS; player++)
         if (players[player] && players[player]->game == game)
             write(players[player]->fd, GAME_STARTED_COMMAND, strlen(GAME_STARTED_COMMAND));
+    sleep(1);
 }
 
 void *game_master(void *arg) {
@@ -330,28 +330,22 @@ void *game_master(void *arg) {
     start_game_notice(game);
 
     sqlite3 *db = open_db();
-   // scoreUpdate(game);
-
-    printf("Game question count %d\n", game->questionCount);
 
     while (game->questionCount < NO_QUESTIONS) {
-        printf("Getting new question\n");
-        pthread_barrier_wait(game->barrier);
+        pthread_barrier_wait(&(game->barrier));
         game->currentQuestion = getNewQuestion(db);
-        printf("Got question. Waiting at barrier\n");
-        pthread_barrier_wait(game->barrier);
-        printf("Going to sleep\n");
+        pthread_barrier_wait(&(game->barrier));
         sleep(ANSWER_TIMEOUT);
-        printf("Woke up. Waiting...\n");
-        pthread_barrier_wait(game->barrier);
-        printf("Barrier raised. Performing cleanup\n");
+        pthread_barrier_wait(&(game->barrier));
         deleteQuestion(game->currentQuestion);
         sleep(1);
-   //     scoreUpdate(game);
-        pthread_barrier_wait(game->barrier);
+        pthread_barrier_wait(&(game->barrier));
         game->questionCount++;
     }
+    pthread_barrier_wait(&(game->barrier));
     printf("Game master ended");
+    deleteGame(game);
+    sqlite3_close(db);
     pthread_detach(pthread_self());
     return NULL;
 }
@@ -369,18 +363,19 @@ void *treat(void *arg) {
         // Warning: race condition ahead...
         if (currentPlayer->game != NULL) {
             if (currentPlayer->game->questionCount == NO_QUESTIONS) {
+                printf("GAME END\n");
                 write(currentPlayer->fd, GAME_END_COMMAND, strlen(GAME_END_COMMAND));
-                // TODO: clear memory leak
+                sleep(1);
+                scoreUpdate(currentPlayer->game, currentPlayer->fd);
+                pthread_barrier_wait(&(currentPlayer->game->barrier));
                 currentPlayer->game = NULL;
             } else {
-                pthread_barrier_wait(currentPlayer->game->barrier);
-                printf("Player in game\n");
+                pthread_barrier_wait(&(currentPlayer->game->barrier));
                 scoreUpdate(currentPlayer->game, currentPlayer->fd);
-                pthread_barrier_wait(currentPlayer->game->barrier);
+                pthread_barrier_wait(&(currentPlayer->game->barrier));
 
                 int *shuffler = randomArray(NO_OF_ANSWERS);
                 char newQuestionCommand[MAX_QUESTION_COMMAND_SIZE];
-                printf("Sending question command...\n");
                 strcpy(newQuestionCommand, GAME_NEWQUESTION_COMMAND);
                 sprintf(newQuestionCommand, "%s|%s", newQuestionCommand,
                         currentPlayer->game->currentQuestion->question);
@@ -396,9 +391,8 @@ void *treat(void *arg) {
                 strcat(newQuestionCommand, "\n");
                 write(currentPlayer->fd, newQuestionCommand,
                       strlen(newQuestionCommand));
-                printf("Question command sent. waiting reply...");
-                pthread_barrier_wait(currentPlayer->game->barrier);
-                pthread_barrier_wait(currentPlayer->game->barrier);
+                pthread_barrier_wait(&(currentPlayer->game->barrier));
+                pthread_barrier_wait(&(currentPlayer->game->barrier));
             }
         }
 
@@ -428,6 +422,13 @@ void *treat(void *arg) {
         } else if (strcmp(command, QUIT_COMMAND) == 0) {
             printf("[server] The client with" "%d descriptor has quit.\n", currentPlayer->fd);
             close(currentPlayer->fd); // Closing the connection
+            pthread_mutex_lock(&mutex);
+            int playerId = 0;
+            for ( ; playerId < MAX_LOGGED_PLAYERS; playerId++)
+                if (players[playerId] == currentPlayer)
+                    break;
+            players[playerId] = NULL;
+            pthread_mutex_unlock(&mutex);
             deletePlayer(currentPlayer);
             break;
         } else {
@@ -435,6 +436,7 @@ void *treat(void *arg) {
                 printf("Unknown command\n");
         }
     }
+    sqlite3_close(db);
 
     pthread_detach(pthread_self());
     return NULL;
@@ -485,13 +487,23 @@ int main () {
 
     // Concurrent server
     while (1) {
+        printf("Beginning iteration...\n");
+        fflush(stdout);
         // Prepare client structure
         struct sockaddr_in from;
         int len = sizeof(from);
+        printf("Declared stuff\n");
+        fflush(stdout);
         bzero(&from, sizeof(from));
+        printf("Bzeroed\n");
+        fflush(stdout);
 
         // If a client is coming, the connection is accepted
+        printf("Accepting...");
+        fflush(stdout);
         int client = accept(socket_fd, (struct sockaddr *)&from, (socklen_t *)&len);
+        printf("Accepted\n");
+        fflush(stdout);
         if (client < 0) {
             perror("[server] accept() error.\n");
             continue;
@@ -499,21 +511,31 @@ int main () {
 
         fcntl(client, F_SETFL, fcntl(client, F_GETFL, 0) | O_NONBLOCK);
         struct Player *player = newPlayer(client);
+        printf("New player created\n");
         pthread_mutex_lock(&mutex);
+        printf("Lock aquired. Adding new player...\n");
 
         int playerId = 0;
         for ( ; playerId < MAX_LOGGED_PLAYERS; playerId++)
             if (players[playerId] == NULL)
                 break;
 
+        printf("Iteration ended at %d\n", playerId);
+
         players[playerId] = player;
 
+        printf("Player added\n");
+
         pthread_mutex_unlock(&mutex);
+
+        printf("Lock released\n");
 
         struct Thread_data *thread_data = malloc(sizeof(struct Thread_data));
         thread_data->client_fd = client;
 
         pthread_create(&thread_id[clientId++], NULL, &treat, player);
+
+        printf("Thread spawn\n");
 
         if (clientId == 99)
             exit(0);

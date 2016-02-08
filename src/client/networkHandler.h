@@ -18,6 +18,10 @@ public:
     void waitForQuestionUpdate();
 
     void sendAnswer(int answer);
+    ScoreTable getScoreTable();
+
+    void quit();
+    void logout();
 
 public slots:
     void loginSlot(const QString &username, const QString &password);
@@ -34,6 +38,7 @@ signals:
     void DNSFailureSignal();
     void connectionFailureSignal();
     void gameStartSignal();
+    void gameEndSignal();
 
     void newQuestionSignal(QuestionData question);
     void newScoreboardSignal(ScoreTable score);
@@ -47,6 +52,7 @@ private:
 
     void handleQuestion(QString);
     void handleScoreboard(QString);
+    void handleEndgame(QString);
 };
 
 #endif // SLOTTESTER_H

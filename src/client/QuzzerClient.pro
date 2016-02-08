@@ -18,7 +18,8 @@ SOURCES += main.cpp\
     question.cpp \
     waitWindow.cpp \
     questionData.cpp \
-    scoreTable.cpp
+    scoreTable.cpp \
+    endgame.cpp
 
 HEADERS  += \
     networkHandler.h \
@@ -27,9 +28,11 @@ HEADERS  += \
     ui.h \
     waitWindow.h \
     questionData.h \
-    scoreTable.h
+    scoreTable.h \
+    endgame.h
 
 FORMS    += \
     login.ui \
     question.ui \
-    wait.ui
+    wait.ui \
+    end.ui

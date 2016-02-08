@@ -21,6 +21,7 @@ public slots:
 
     void newScoreboardSlot(ScoreTable);
     void newQuestionSlot(QuestionData);
+    void gameEndSlot();
 
     void answer_A();
     void answer_B();

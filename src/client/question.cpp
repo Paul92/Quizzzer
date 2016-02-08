@@ -16,6 +16,7 @@ Question::Question(NetworkHandler &network, QWidget *parent):
 
     connect(&network, SIGNAL(newScoreboardSignal(ScoreTable)), this, SLOT(newScoreboardSlot(ScoreTable)));
     connect(&network, SIGNAL(newQuestionSignal(QuestionData)), this, SLOT(newQuestionSlot(QuestionData)));
+    connect(&network, SIGNAL(gameEndSignal()), this, SLOT(gameEndSlot()));
 
     connect(this->ui->Abtn, SIGNAL(released()), this, SLOT(answer_A()));
     connect(this->ui->Bbtn, SIGNAL(released()), this, SLOT(answer_B()));
@@ -29,19 +30,21 @@ Question::Question(NetworkHandler &network, QWidget *parent):
     network.newQuestionSlot(0);
 }
 
+void Question::gameEndSlot() {
+    qDebug("GAME END SLOT");
+    this->close();
+}
+
 void Question::newScoreboardSlot(ScoreTable table) {
     qDebug() << "Called scoreboard slot" << table.size();
     if (this->ui->scoreBoardLayout->count() == 0) {
         for (int i = 0; i < table.size(); i++) {
-            qDebug("Adding shit...");
             this->scoreboardLabel[i] = new QLabel();
             this->scoreboardLabel[i]->setText(table.players[i] + ": " + table.scores[i]);
             this->ui->scoreBoardLayout->addWidget(this->scoreboardLabel[i]);
         }
     } else {
         for (int i = 0; i < table.size(); i++) {
-            qDebug("Updating shit...");
-
             this->scoreboardLabel[i]->setText(table.players[i] + ": " + table.scores[i]);
         }
     }

@@ -96,10 +96,11 @@ void NetworkHandler::waitForQuestionUpdate() {
 }
 
 void NetworkHandler::gameStartSlot(int sockfd) {
-    qDebug("SlotCalled\n");
+    qDebug("Game start slot called\n");
     char buffer[256];
     read(this->sockfd, buffer, 256);
-    if (strcmp(buffer, "game_started\n") == 0) {
+    qDebug() << "Received status " << buffer;
+    if (strncmp(buffer, "game_started\n", 12) == 0) {
         qDebug("Signal Emitted\n");
         this->notifier->setEnabled(false);
         disconnect(this->notifier, 0, this, 0);
@@ -108,37 +109,41 @@ void NetworkHandler::gameStartSlot(int sockfd) {
 }
 
 void NetworkHandler::handleQuestion(QString buffer) {
-    qDebug("Got new question\n");
-    qDebug() << buffer;
+    qDebug("Raising question signal");
     QStringList params = buffer.split("|");
     params.removeFirst();
     QuestionData question(params);
-    qDebug("Fine");
-    qDebug("Raising new question signal\n");
     emit newQuestionSignal(question);
 }
 
 void NetworkHandler::handleScoreboard(QString buffer) {
-    qDebug("Got new score\n");
+    qDebug("Raising scoreboard signal");
     QStringList params = buffer.split("|");
-
     params.removeFirst();
     ScoreTable table(params);
-    qDebug("Raising new scoreboard signal\n");
     emit newScoreboardSignal(table);
+}
+
+void NetworkHandler::handleEndgame(QString buffer) {
+    qDebug("Raising endgame signal");
+    this->notifier->setEnabled(false);
+    disconnect(this->notifier, 0, this, 0);
+    emit gameEndSignal();
 }
 
 void NetworkHandler::newQuestionSlot(int sockfd) {
     char buffer[1024];
     memset(buffer, 0, 1024 * sizeof(char));
     read(this->sockfd, buffer, 1024);
-        qDebug(buffer);
+    qDebug() << "New command: " << buffer;
     if (strncmp(buffer, "question", 8) == 0)
         handleQuestion(buffer);
     else if (strncmp(buffer, "scoreboard", 10) == 0)
         handleScoreboard(buffer);
+    else if (strncmp(buffer, "game_end", 8) == 0)
+        handleEndgame(buffer);
     else
-        qCritical("Unexpected command in newQuestionSlot\n");
+        qCritical() << "Unexpected command  in newQuestionSlot: " << buffer;
 }
 
 void NetworkHandler::sendAnswer(int answer) {
@@ -148,3 +153,19 @@ void NetworkHandler::sendAnswer(int answer) {
     qDebug("Answer command sent");
 }
 
+ScoreTable NetworkHandler::getScoreTable() {
+    char buffer[1024];
+    memset(buffer, 0, 1024 * sizeof(char));
+    read(this->sockfd, buffer, 1024);
+    QString string(buffer);
+    QStringList params = string.split("|");
+    params.removeFirst();
+    qDebug("Final score table received");
+    return ScoreTable(params);
+}
+
+void NetworkHandler::logout() {
+    char logoutString[] = "logout\n";
+    write(this->sockfd, logoutString, strlen(logoutString));
+    qDebug("Logout command sent");
+}
