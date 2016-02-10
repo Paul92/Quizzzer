@@ -245,9 +245,9 @@ void handle_newuser_command(sqlite3 *db, struct Player *player, char *username, 
     // If insertion has failed, then an error message will be printed
     if (sqlite3_exec(db, sql_command, register_query, NULL,
                      &zErrMsg) != SQLITE_OK) {
+        write(player->fd, "FAILED\n", 8);
         fprintf(stderr, "SQL error: %s\n", zErrMsg);
         sqlite3_free(zErrMsg);
-        exit(0);
     } else {
         fprintf(stdout, "You are now registered!\n");
         write(player->fd, "OK\n", 4);
